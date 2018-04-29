@@ -90,6 +90,17 @@ function bpCurl($url, $apiKey, $post = false)
     return $response;
 }
 
+public function getFullUri($baseUri, $path)
+{
+    $uriNormalized = rtrim($baseUri, '/');
+    $pathNormalized = ltrim($path, '/');
+    return sprintf(
+        '%s/%s',
+        $uriNormalized,
+        $pathNormalized
+    );
+}
+
 /**
  * $orderId: Used to display an orderID to the buyer. In the account summary view, this value is used to
  * identify a ledger entry if present.
@@ -131,11 +142,7 @@ function bpCreateInvoice($orderId, $price, $posData, $options = array())
     $options['orderID']  = $orderId;
     $options['price']    = $price;
 
-    if ($options['network'] == 'test') {
-        $network = 'https://test.bitpay.com/api/invoice/';
-    } else {
-        $network = 'https://bitpay.com/api/invoice/';
-    }
+    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoice");
 
     $postOptions = array('orderID', 'itemDesc', 'itemCode', 'notificationEmail', 'notificationURL', 'redirectURL',
         'posData', 'price', 'currency', 'physical', 'fullNotifications', 'transactionSpeed', 'buyerName',
@@ -149,7 +156,7 @@ function bpCreateInvoice($orderId, $price, $posData, $options = array())
 
     $post     = json_encode($post);
 
-    $response = bpCurl($network, $options['apiKey'], $post);
+    $response = bpCurl($btcpayUrl, $options['apiKey'], $post);
 
     return $response;
 }
@@ -158,10 +165,10 @@ function bpCreateInvoice($orderId, $price, $posData, $options = array())
  * Call from your notification handler to convert $_POST data to an object containing invoice data
  *
  * @param  string $apiKey
- * @param  null   $network
+ * @param  null   $btcpayUrl
  * @return array
  */
-function bpVerifyNotification($apiKey = false, $network = null)
+function bpVerifyNotification($apiKey = false, $btcpayUrl = null)
 {
     global $bpOptions;
 
@@ -197,7 +204,7 @@ function bpVerifyNotification($apiKey = false, $network = null)
         return 'Cannot find invoice ID';
     }
 
-    return bpGetInvoice($json['id'], $apiKey, $network);
+    return bpGetInvoice($json['id'], $apiKey, $btcpayUrl);
 }
 
 /**
@@ -205,10 +212,10 @@ function bpVerifyNotification($apiKey = false, $network = null)
  *
  * @param  string $invoiceId
  * @param  string $apiKey
- * @param  string $network
+ * @param  string $btcpayUrl
  * @return array
  */
-function bpGetInvoice($invoiceId, $apiKey = false, $network = null)
+function bpGetInvoice($invoiceId, $apiKey = false, $btcpayUrl = null)
 {
     global $bpOptions;
 
@@ -216,13 +223,8 @@ function bpGetInvoice($invoiceId, $apiKey = false, $network = null)
         $apiKey = $bpOptions['apiKey'];
     }
 
-    if (true == empty($network) || $network == 'live') {
-        $network = 'https://bitpay.com/api/invoice/';
-    } else {
-        $network = 'https://test.bitpay.com/api/invoice/';
-    }
-
-    $response = bpCurl($network . $invoiceId, $apiKey);
+    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoice");
+    $response = bpCurl($btcpayUrl . $invoiceId, $apiKey);
 
     if (is_string($response)) {
         return $response; // error

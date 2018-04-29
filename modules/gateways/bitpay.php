@@ -39,10 +39,9 @@ function bitpay_config()
             'FriendlyName' => 'Legacy API Key from your bitpay.com merchant account.',
             'Type'         => 'text'
         ),
-        'network' => array(
-          'FriendlyName' => 'Select if this key is from bitpay.com or test.bitpay.com.',
-          'Type'         => 'dropdown',
-          'Options'      => 'live,test',
+        'btcpayUrl' => array(
+            'FriendlyName' => 'URI to your BTCPay server',
+            'Type'         => 'text'
         ),
         'redirectURL' => array(
                 'FriendlyName' => 'Redirect URL after BitPay invoice',

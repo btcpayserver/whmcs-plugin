@@ -50,7 +50,7 @@ if (!$GATEWAY['type']) {
     die('[ERROR] In modules/gateways/callback/bitpay.php: Bitpay module not activated.');
 }
 
-$response = bpVerifyNotification($GATEWAY['apiKey'], $GATEWAY['network']);
+$response = bpVerifyNotification($GATEWAY['apiKey'], $GATEWAY['btcpayUrl']);
 
 if (true === is_string($response) || true === empty($response)) {
     logTransaction($GATEWAY['name'], $_POST, $response);

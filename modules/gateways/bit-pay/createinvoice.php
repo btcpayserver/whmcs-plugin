@@ -110,7 +110,7 @@ $options['redirectURL']      = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redir
 $options['apiKey']           = $GATEWAY['apiKey'];
 $options['transactionSpeed'] = $GATEWAY['transactionSpeed'];
 $options['currency']         = $currency;
-$options['network']          = $GATEWAY['network'];
+$options['btcpayUrl']          = $GATEWAY['btcpayUrl'];
 
 $invoice                     = bpCreateInvoice($invoiceId, $price, $invoiceId, $options);
 

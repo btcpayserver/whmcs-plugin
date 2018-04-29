@@ -32,8 +32,8 @@ global $bpOptions;
 // example: $bpOptions['apiKey'] = 'L21K5IIUG3IN2J3';
 $bpOptions['apiKey'] = '';
 
-// Indicates whether API key is from test.bitpay.com or bitpay.com
-$bpOptions['network'] = 'live';
+// URI to your BTCPay server
+$bpOptions['btcpayUrl'] = '';
 
 // whether to verify POS data by hashing above api key.  If set to false, you should
 // have some way of verifying that callback data comes from bitpay.com
