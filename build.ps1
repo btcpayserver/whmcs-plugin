@@ -16,4 +16,6 @@ Add-Type -assembly "system.io.compression.filesystem"
 Remove-Item "$dist\tmp" -Force -Recurse
 
 Write-Output "Output available in $outputFile"
+git tag -a "v$version" -m "v$version"
+git push --tags
 
