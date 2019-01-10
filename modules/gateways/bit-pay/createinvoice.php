@@ -118,5 +118,5 @@ if (isset($invoice['error'])) {
     bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
     die('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
 } else {
-    header('Location: ' . $invoice['url']);
+    header('Location: ' . $invoice['data']['url']);
 }
