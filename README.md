@@ -1,22 +1,16 @@
 # Description
 
-Bitcoin payment plugin for WHMCS using the bitpay.com service.
-
-[![Build Status](https://travis-ci.org/bitpay/whmcs-plugin.svg?branch=master)](https://travis-ci.org/bitpay/whmcs-plugin)
+Bitcoin payment plugin for WHMCS using the BTCPayServer service.
 
 ## Quick Start Guide
 
-To get up and running with our plugin quickly, see the GUIDE here: https://github.com/bitpay/whmcs-plugin/blob/master/GUIDE.md
+To get up and running with our plugin quickly, see the GUIDE here: https://github.com/btcpayserver/whmcs-plugin/blob/master/GUIDE.md
 
 ## Support
 
-**BitPay Support:**
-
 * Last Version Tested: 7.4.2
-* [GitHub Issues](https://github.com/bitpay/whmcs-plugin/issues)
+* [GitHub Issues](https://github.com/btcpayserver/whmcs-plugin/issues)
   * Open an issue if you are having issues with this plugin
-* [Support](https://help.bitpay.com)
-  * BitPay merchant support documentation
 
 **WHMCS Support:**
 
@@ -28,7 +22,7 @@ To get up and running with our plugin quickly, see the GUIDE here: https://githu
 
 0. Ensure a valid SSL certificate is installed on your server. Also ensure your root CA cert is updated. If your CA cert is not current, you will see curl SSL verification errors.
 1. Verify that your web server is not blocking POSTs from servers it may not recognize. Double check this on your firewall as well, if one is being used.
-2. Check the version of this plugin against the official plugin repository to ensure you are using the latest version. Your issue might have been addressed in a newer version! See the [Releases](https://github.com/bitpay/whmcs-plugin/releases/latest) page for the latest.
+2. Check the version of this plugin against the official plugin repository to ensure you are using the latest version. Your issue might have been addressed in a newer version! See the [Releases](https://github.com/btcpayserver/whmcs-plugin/releases/latest) page for the latest.
 3. If all else fails, contact us using one of the methods described in the Support section above.
 
 **TIP**: When contacting support it will help us is you provide:
@@ -40,7 +34,7 @@ To get up and running with our plugin quickly, see the GUIDE here: https://githu
 
 ## Contribute
 
-Would you like to help with this project?  Great!  You don't have to be a developer, either.  If you've found a bug or have an idea for an improvement, please open an [issue](https://github.com/bitpay/whmcs-plugin/issues) and tell us about it.
+Would you like to help with this project?  Great!  You don't have to be a developer, either.  If you've found a bug or have an idea for an improvement, please open an [issue](https://github.com/btcpayserver/whmcs-plugin/issues) and tell us about it.
 
 If you *are* a developer wanting contribute an enhancement, bugfix or other patch to this project, please fork this repository and submit a pull request detailing your changes. We review all PRs!
 
@@ -48,4 +42,4 @@ This open source project is released under the [MIT license](http://opensource.o
 
 ## License
 
-Please refer to the [LICENSE](https://github.com/bitpay/whmcs-plugin/blob/master/LICENSE) file that came with this project.
+Please refer to the [LICENSE](https://github.com/btcpayserver/whmcs-plugin/blob/master/LICENSE) file that came with this project.
