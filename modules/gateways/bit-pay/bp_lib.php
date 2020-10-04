@@ -90,7 +90,7 @@ function bpCurl($url, $apiKey, $post = false)
     return $response;
 }
 
-public function getFullUri($baseUri, $path)
+ function getFullUri($baseUri, $path)
 {
     $uriNormalized = rtrim($baseUri, '/');
     $pathNormalized = ltrim($path, '/');
