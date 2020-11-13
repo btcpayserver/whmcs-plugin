@@ -89,7 +89,6 @@ function bpCurl($url, $apiKey, $post = false)
 
     return $response;
 }
-
  function getFullUri($baseUri, $path)
 {
     $uriNormalized = rtrim($baseUri, '/');
@@ -142,7 +141,7 @@ function bpCreateInvoice($orderId, $price, $posData, $options = array())
     $options['orderID']  = $orderId;
     $options['price']    = $price;
 
-    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoice");
+    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoices/");
 
     $postOptions = array('orderID', 'itemDesc', 'itemCode', 'notificationEmail', 'notificationURL', 'redirectURL',
         'posData', 'price', 'currency', 'physical', 'fullNotifications', 'transactionSpeed', 'buyerName',
@@ -223,13 +222,13 @@ function bpGetInvoice($invoiceId, $apiKey = false, $btcpayUrl = null)
         $apiKey = $bpOptions['apiKey'];
     }
 
-    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoice");
+    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoices/");
     $response = bpCurl($btcpayUrl . $invoiceId, $apiKey);
 
     if (is_string($response)) {
         return $response; // error
     }
-
+    $response = $response['data'];
     $response['posData'] = json_decode($response['posData'], true);
 
     if($bpOptions['verifyPos']) {
