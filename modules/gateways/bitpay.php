@@ -2,7 +2,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2011-2018 BitPay
+ * Copyright (c) 2011-2018 BitPay, BTCPay server (c) 2019-2022
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,6 +23,17 @@
  * THE SOFTWARE.
  */
 
+function bitpay_MetaData()
+{
+    return [
+      'DisplayName' => 'BTCPay Server (legacy API)',
+      'failedEmail' => 'Credit Card Payment Failed',
+      'successEmail' => 'BTCPay Payment Success',
+      'pendingEmail' => 'BTCPay Payment Pending',
+      'APIVersion' => '1.1',
+    ];
+}
+
 /**
  * Returns configuration options array.
  *
@@ -33,18 +44,18 @@ function bitpay_config()
     $configarray = array(
         "FriendlyName" => array(
             "Type" => "System",
-            "Value"=>"BitPay"
+            "Value" => "BTCPay Server (legacy API)"
         ),
         'apiKey' => array(
-            'FriendlyName' => 'Legacy API Key from your bitpay.com merchant account.',
-            'Type'         => 'text'
+            'FriendlyName' => 'Legacy API Key from your BTCPay Server store.',
+            'Type' => 'text'
         ),
         'btcpayUrl' => array(
             'FriendlyName' => 'URI to your BTCPay server',
-            'Type'         => 'text'
+            'Type' => 'text'
         ),
         'redirectURL' => array(
-                'FriendlyName' => 'Redirect URL after BitPay invoice',
+                'FriendlyName' => 'Redirect URL after invoice',
                 'Type' => 'text',
                 'Value' => isset($_POST['redirectURL']) ? $_POST['redirectURL'] : $_POST['systemURL']
         ),

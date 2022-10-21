@@ -30,10 +30,10 @@ global $bpOptions;
 
 // REQUIRED Api key you created at bitpay.com
 // example: $bpOptions['apiKey'] = 'L21K5IIUG3IN2J3';
-$bpOptions['apiKey'] = '';
+$bpOptions['apiKey'] = 'IbWdoUrhypROCRvdhIdkEYnRDLEDnddkO7YiYCvMO07';
 
 // URI to your BTCPay server
-$bpOptions['btcpayUrl'] = '';
+$bpOptions['btcpayUrl'] = 'https://testnet.demo.btcpay.tech';
 
 // whether to verify POS data by hashing above api key.  If set to false, you should
 // have some way of verifying that callback data comes from bitpay.com
@@ -48,7 +48,7 @@ $bpOptions['notificationURL'] = '';
 
 // url where the customer should be directed to after paying for the order
 # example: $bpNotificationUrl = 'http://www.example.com/confirmation.php';
-$bpOptions['redirectURL'] = '';
+$bpOptions['redirectURL'] = 'https://ote.4sats.net/';
 
 // This is the currency used for the price setting.  A list of other pricing
 // currencies supported is found at bitpay.com

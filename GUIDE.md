@@ -1,11 +1,14 @@
-# Using the BitPay payment plugin for WHMCS
+# Using the BTCPay Server payment plugin for WHMCS
 
 ## Prerequisites
 
-* Last Version Tested: 7.4.2
-
-You must have a BitPay merchant account to use this plugin.  It's free and easy to [sign-up for a BitPay merchant account](https://bitpay.com/start).
-
+- PHP version 8.1 or newer, lower versions may work but are not maintained
+- The curl, gd, intl, json, gmp (or bcmath) and mbstring PHP extensions are available
+- WHMCS ([Download and installation instructions](https://download.whmcs.com/))
+- You have a BTCPay Server version 1.3.0 or later, either [self-hosted](https://docs.btcpayserver.org/Deployment/) or [hosted by a third-party](https://docs.btcpayserver.org/Deployment/ThirdPartyHosting/)
+- [You've a registered account on the instance](https://docs.btcpayserver.org/RegisterAccount/)
+- [You've a BTCPay store on the instance](https://docs.btcpayserver.org/CreateStore/)
+- [You've a wallet connected to your store](https://docs.btcpayserver.org/WalletSetup/)
 
 
 ## Installation
@@ -13,40 +16,32 @@ You must have a BitPay merchant account to use this plugin.  It's free and easy 
 Extract these files into the WHMCS directory on your webserver (parent directory of
 modules/folder).
 
-
 ## Configuration
 
-1. Take a moment to ensure that you have set your store's domain and the WHMCS System URL under **whmcs/admin > Setup > General Settings**.
-2. Create a "Legacy API Key" in your BitPay merchant account dashboard:
-  * Log into https://bitpay.com with your account username/password.
+1. Take a moment to ensure that you have set your store's domain and the WHMCS System URL under **whmcs/admin > Settings Menu > Apps & Integrations**.
+2. Create a "Legacy API Key" on your BTCPay Server store account dashboard:
+  * Log into your BTCPay Server store with username/password.
   * On the left side of the screen, choose **Settings**.
-  * The menu will expand downward revealing a list of options. Choose the **Legacy API Keys** option.
-  * On the right side of the page, click on the grey **+ Add New API Key** button to instantly create a new one.
+  * Select the tab **Access Tokens**.
+  * Below the "Legacy API Keys" headline click on the  **Generate** button to instantly create a new one.
   * Select and copy the entire string for the new API Key ID that you just created. It will look something like this: 43rp4rpa24d6Bz4BR44j8zL44PrU4npVv4DtJA4Kb8.
-3. In the admin control panel, go to **Setup > Payment Gateways**, select **Bit-pay** in the list of modules and click **Activate**.
-  * If you can't find the BitPay plugin in the list of payment gateways -or- in the WHMCS app store, then you may clone this repo and copy modules/gateways into your <whmcs root>/modules/gateways/.
+3. In the admin control panel, go to **Settings > Apps & Integrations**, on the top right searchbar, search for **BTCPay**. In the list of modules you will see "BTCPay Server (legacy API)".
+  * If you can't find the BTCPay Server plugin in the list of payment gateways -or- in the WHMCS app store, then you may clone this repo and copy modules/gateways into your <whmcs root>/modules/gateways/.
 4. Paste the API Key ID string that you created and copied from step 2. 
-5. Choose a transaction speed. This setting determines how quickly you will receive a payment confirmation from BitPay after an invoice is paid by a customer.
+5. Choose a transaction speed. This setting determines how quickly you will receive a payment confirmation from BTCPay Server after an invoice is paid by a customer.
   * High: A confirmation is sent instantly once the payment has been received by the gateway.
-  * Medium: A confirmation is sent after 1 block confirmation (~10 mins) by the bitcoin network.
+  * Medium: A confirmation is sent after 1 block confirmation (~10 mins) by the bitcoin network (recommended).
   * Low: A confirmation is sent after the usual 6 block confirmations (~1 hour) by the bitcoin network.
-6. If you see the **Convert To For Processing** option, choose a currency that is accepted by BitPay (e.g. BTC/USD/CAD).  You can see a full list of our supported currencies here: [Bitcoin Exchange Rates](https://bitpay.com/bitcoin-exchange-rates).
-7. If you see the option but such a currency does not appear here, or if don't see the option and you are currently accepting a currency that is not accepted by BitPay:
-  * Click **Save Changes**.
-  * Create an accepted currency (e.g. USD/BTC/CAD) by going to **Setup > Currencies**, filling out the form and clicking **Add Currency**.
-    * **NOTE:** You will have to update the conversion rate manually for BTC, so it's advisable here to choose your local currency over BTC since the BTC exchange rate update can be automated for your local currency.
-  * Return to **Setup > Payment Gateways** and choose this new currency for the "Convert To For Processing" setting.
-8. Click **Save Changes**.
+6. Click **Save Changes**.
 
 You're done!
 
-
 ## Usage
 
-When a client chooses the BitPay payment method, they will be presented with an invoice showing a button they will have to click on in order to pay their order.  Upon requesting to pay their order, the system takes the client to a full-screen bitpay.com invoice page where the client is presented with payment instructions.  Once payment is received, a link is presented to the shopper that will return them to your website.
+When a client chooses the BTCPay Server payment method, they will be presented with an invoice showing a button they will have to click on in order to pay their order.  Upon requesting to pay their order, the system takes the client to a full-screen invoice page of your BTCPay Server where the client is presented with payment instructions.  Once payment is received, a link is presented to the shopper that will return them to your website.
 
 **NOTE:** Don't worry!  A payment will automatically update your WHMCS store whether or not the customer returns to your website after they've paid the invoice.
 
-In your WHMCS control panel, you can see the information associated with each order made via BitPay by choosing **Orders > Pending Orders**.  This screen will tell you whether payment has been received by the BitPay servers.  You can also view the details for any paid invoice inside your BitPay merchant dashboard under the **Payments** page.
+In your WHMCS control panel, you can see the information associated with each order made via BTCPay Server by choosing **Orders > Pending Orders**.  This screen will tell you whether payment has been received by the BTCPay Server instance. You can also view the details for any paid invoice inside your BTCPay store dashboard under the **Invoices** page.
 
 **NOTE:** This extension does not provide a means of automatically pulling a current BTC exchange rate for presenting BTC prices to shoppers.  If you want to have a BTC currency in your installation, you must update the exchange rate manually.

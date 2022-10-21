@@ -8,15 +8,15 @@ To get up and running with our plugin quickly, see the GUIDE here: https://githu
 
 ## Support
 
-* Last Version Tested: 7.4.2
+* Last Version Tested: 8.6.0 RC1
 * [GitHub Issues](https://github.com/btcpayserver/whmcs-plugin/issues)
   * Open an issue if you are having issues with this plugin
 
 **WHMCS Support:**
 
 * [Homepage](https://www.whmcs.com/)
-* [Documentation](http://docs.whmcs.com/Main_Page)
-* [SupportForums](http://forum.whmcs.com/)
+* [Documentation](https://docs.whmcs.com/)
+* [SupportForums](https://whmcs.community/)
 
 ## Troubleshooting
 
@@ -27,7 +27,7 @@ To get up and running with our plugin quickly, see the GUIDE here: https://githu
 
 **TIP**: When contacting support it will help us is you provide:
 
-* WHMCS and BitPay Plugin Version
+* WHMCS and BTCPay Server Plugin Version
 * Any log files that will help
   * WHMCS logs and Web server error logs
 * Screen grabs of error message if applicable.
@@ -36,9 +36,9 @@ To get up and running with our plugin quickly, see the GUIDE here: https://githu
 
 Would you like to help with this project?  Great!  You don't have to be a developer, either.  If you've found a bug or have an idea for an improvement, please open an [issue](https://github.com/btcpayserver/whmcs-plugin/issues) and tell us about it.
 
-If you *are* a developer wanting contribute an enhancement, bugfix or other patch to this project, please fork this repository and submit a pull request detailing your changes. We review all PRs!
+If you *are* a developer wanting to contribute an enhancement, bugfix or other patch to this project, please fork this repository and submit a pull request detailing your changes. We review all PRs!
 
-This open source project is released under the [MIT license](http://opensource.org/licenses/MIT) which means if you would like to use this project's code in your own project you are free to do so.  Speaking of, if you have used our code in a cool new project we would like to hear about it!  [Please send us an email](mailto:integrations@bitpay.com).
+This open source project is released under the [MIT license](http://opensource.org/licenses/MIT) which means if you would like to use this project's code in your own project you are free to do so. This plugin is forked from the BitPay WHMCS plugin.
 
 ## License
 

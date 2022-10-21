@@ -2,7 +2,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2011-2018 BitPay
+ * Copyright (c) 2011-2018 BitPay, BTCPay server (c) 2019-2022
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -105,18 +105,23 @@ unset($options['systemURL']);
 unset($options['redirectURL']);
 
 
-$options['notificationURL']  = $_POST['systemURL'].'/modules/gateways/callback/bitpay.php';
-$options['redirectURL']      = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redirectURL'] : $_POST['systemURL'];
-$options['apiKey']           = $GATEWAY['apiKey'];
+$options['notificationURL'] = $_POST['systemURL'] . '/modules/gateways/callback/bitpay.php';
+$options['redirectURL'] = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redirectURL'] : $_POST['systemURL'];
+$options['apiKey'] = $GATEWAY['apiKey'];
 $options['transactionSpeed'] = $GATEWAY['transactionSpeed'];
-$options['currency']         = $currency;
-$options['btcpayUrl']          = $GATEWAY['btcpayUrl'];
+$options['currency'] = $currency;
+$options['btcpayUrl'] = $GATEWAY['btcpayUrl'];
 
-$invoice                     = bpCreateInvoice($invoiceId, $price, $invoiceId, $options);
+$invoice = bpCreateInvoice($invoiceId, $price, $invoiceId, $options);
 
 if (isset($invoice['error'])) {
     bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
     die('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
 } else {
-    header('Location: ' . $invoice['url']);
+    if (!empty($invoice['data']['url'])) {
+        header('Location: ' . $invoice['data']['url']);
+    } else {
+        $invError = "Something went wrong when creating the invoice and redirecting to BTCPay Server.";
+        bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . $invError);
+    }
 }

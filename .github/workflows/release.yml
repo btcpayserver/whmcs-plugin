@@ -1,0 +1,34 @@
+name: Build release artifact.
+on:
+  release:
+    types: [ published ]
+jobs:
+  tag:
+    name: Build release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      # Composer install not needed as long as we have the system/libraries/ directory committed.
+      #- name: Install Composer dependencies
+      #  uses: php-actions/composer@v6
+      #  with:
+      #    dev: no
+      #    php_version: 7.4
+      #    php_extensions: bcmath
+
+      - name: Create release artifact.
+        uses: thedoctor0/zip-release@master
+        with:
+          type: 'zip'
+          filename: 'BTCPay-WHMCS-Plugin-${{ env.GITHUB_REF }}.zip'
+          exclusions: '*.git* *.github* composer.* README.md GUIDE.md'
+      - name: Upload artifact to release page.
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: 'BTCPay-WHMCS-Plugin-${{ env.GITHUB_REF }}.zip'
+          removeArtifacts: true
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}

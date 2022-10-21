@@ -54,18 +54,18 @@ $response = bpVerifyNotification($GATEWAY['apiKey'], $GATEWAY['btcpayUrl']);
 
 if (true === is_string($response) || true === empty($response)) {
     logTransaction($GATEWAY['name'], $_POST, $response);
+    bpLog('[ERROR] In modules/gateways/callback/bitpay.php: Invalid response received: ' . $response);
     die('[ERROR] In modules/gateways/callback/bitpay.php: Invalid response received: ' . $response);
 } else {
-    $invoiceid = $response['posData'];
+    $whmcsid = $response['data']['orderId'];
 
     // Checks invoice ID is a valid invoice number or ends processing
-    $invoiceid = checkCbInvoiceID($invoiceid, $GATEWAY['name']);
+    $whmcsid = checkCbInvoiceID($whmcsid, $GATEWAY['name']);
 
-    $transid = $response['id'];
+    $transid = $response['data']['id'];
     
     
-    $invoice = Capsule::table('tblinvoices')->where('id', $invoiceid)->first();
-    
+    $invoice = Capsule::table('tblinvoices')->where('id', $whmcsid)->first();
     $userid = $invoice->userid;
 
     // Checks transaction number isn't already in the database and ends processing if it does
@@ -77,7 +77,7 @@ if (true === is_string($response) || true === empty($response)) {
     // left blank, this will auto-fill as the full balance
     $amount = '';
 
-    switch ($response['status']) {
+    switch ($response['data']['status']) {
         case 'paid':
             // New payment, not confirmed
             logTransaction($GATEWAY['name'], $response, 'The payment has been received, but the transaction has not been confirmed on the bitcoin network. This will be updated when the transaction has been confirmed.');
@@ -85,13 +85,13 @@ if (true === is_string($response) || true === empty($response)) {
         case 'confirmed':
             // Apply Payment to Invoice
             Capsule::table('tblclients')->where('id', $userid)->update(array('defaultgateway' => $gatewaymodule));
-            addInvoicePayment($invoiceid, $transid, $amount, $fee, $gatewaymodule);
+            addInvoicePayment($whmcsid, $transid, $amount, $fee, $gatewaymodule);
             logTransaction($GATEWAY['name'], $response, 'The payment has been received, and the transaction has been confirmed on the bitcoin network. This will be updated when the transaction has been completed.');
             break;
         case 'complete':
             // Apply Payment to Invoice
             Capsule::table('tblclients')->where('id', $userid)->update(array('defaultgateway' => $gatewaymodule));
-            addInvoicePayment($invoiceid, $transid, $amount, $fee, $gatewaymodule);
+            addInvoicePayment($whmcsid, $transid, $amount, $fee, $gatewaymodule);
             logTransaction($GATEWAY['name'], $response, 'The transaction is now complete.');
             break;
         case 'expired':
