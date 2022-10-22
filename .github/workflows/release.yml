@@ -24,7 +24,7 @@ jobs:
         with:
           type: 'zip'
           filename: 'BTCPay-WHMCS-Plugin-${{ github.ref_name }}.zip'
-          exclusions: '*.git* *.github* composer.* README.md GUIDE.md'
+          exclusions: '*.git* *.github* composer.* README.md GUIDE.md LICENSE'
       - name: Upload artifact to release page.
         uses: ncipollo/release-action@v1
         with:
