@@ -35,8 +35,8 @@ if (file_exists('../../../dbconnect.php')) {
 } else if (file_exists('../../../init.php')) {
     include '../../../init.php';
 } else {
-    bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
-    die('[ERROR] In modules/gateways/btcpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: include error: Cannot find dbconnect.php or init.php');
+    die('[ERROR] In modules/gateways/callback/btcpay.php: include error: Cannot find dbconnect.php or init.php');
 }
 
 require_once '../btcpay/bp_lib.php';
@@ -47,7 +47,7 @@ $GATEWAY       = getGatewayVariables($gatewaymodule);
 if (!$GATEWAY['type']) {
     logTransaction($GATEWAY['name'], $_POST, 'Not activated');
     bpLog('[ERROR] In modules/gateways/callback/btcpay.php: btcpay module not activated');
-    die('[ERROR] In modules/gateways/callback/btcpay.php: Bitpay module not activated.');
+    die('[ERROR] In modules/gateways/callback/btcpay.php: BTCPay module not activated.');
 }
 
 $response = bpVerifyNotification($GATEWAY['apiKey'], $GATEWAY['btcpayUrl']);

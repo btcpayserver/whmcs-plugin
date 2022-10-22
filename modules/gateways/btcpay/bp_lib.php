@@ -75,13 +75,13 @@ function bpCurl($url, $apiKey, $post = false)
     $responseString = curl_exec($curl);
     
     if ($responseString == false) {
-        $response = array('error' => curl_error($curl));
+        $response = array('error' => 'curl errno: ' . curl_errno($curl) . ', error: ' . curl_error($curl));
         bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($response, true));
     } else {
         $response = json_decode($responseString, true);
 
         if (!$response) {
-            bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($responseString, true));
+            bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Could not decode json, status: ' . curl_errno($curl)  . ' responseString: ' . var_export($responseString, true));
             $response = array('error' => 'invalid json: ' . $responseString);
         }
     }
@@ -224,7 +224,12 @@ function bpGetInvoice($invoiceId, $apiKey = false, $btcpayUrl = null)
         $apiKey = $bpOptions['apiKey'];
     }
 
-    $btcpayUrl = getFullUri($bpOptions['btcpayUrl'],"/invoices");
+    if (!$btcpayUrl) {
+        $btcpayUrl = $bpOptions['btcpayUrl'];
+    }
+
+    $btcpayUrl = getFullUri($btcpayUrl,"/invoices");
+
     $response = bpCurl($btcpayUrl . '/' .  $invoiceId, $apiKey);
 
     if (is_string($response)) {
