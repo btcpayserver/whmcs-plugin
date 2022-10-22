@@ -1,0 +1,26 @@
+{
+  "schema": "1.0",
+  "type": "whmcs-gateways",
+  "name": "btcpay",
+  "license": "mit",
+  "category": "payments",
+  "description": {
+    "name": "BTCPay Server (Legacy API)",
+    "tagline": "Accept non-custodial Bitcoin and Altcoin payments.",
+    "long": "With BTCPay Server you can become your own payment processor with no 3rd party taking a cut or censoring transactions."
+  },
+  "logo": {
+    "filename": "btcpay.png"
+  },
+  "support": {
+    "homepage": "https:\/\/btcpayserver.org\/",
+    "support_url": "https://github.com/btcpayserver/whmcs-plugin\/issues",
+    "docs_url": "https:\/\/github.com\/btcpayserver\/whmcs-plugin\/blob\/master\/GUIDE.md"
+  },
+  "authors": [
+    {
+      "name": "BTCPay Server Integrations Team",
+      "homepage": "https:\/\/btcpayserver.org\/"
+    }
+  ]
+}
