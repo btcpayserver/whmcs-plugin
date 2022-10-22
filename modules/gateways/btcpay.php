@@ -23,7 +23,7 @@
  * THE SOFTWARE.
  */
 
-function bitpay_MetaData()
+function btcpay_MetaData()
 {
     return [
       'DisplayName' => 'BTCPay Server (legacy API)',
@@ -39,7 +39,7 @@ function bitpay_MetaData()
  *
  * @return array
  */
-function bitpay_config()
+function btcpay_config()
 {
     $configarray = array(
         "FriendlyName" => array(
@@ -75,10 +75,10 @@ function bitpay_config()
  * @param  array  $params
  * @return string
  */
-function bitpay_link($params)
+function btcpay_link($params)
 {
     if (false === isset($params) || true === empty($params)) {
-        die('[ERROR] In modules/gateways/bitpay.php::bitpay_link() function: Missing or invalid $params data.');
+        die('[ERROR] In modules/gateways/btcpay.php::btcpay_link() function: Missing or invalid $params data.');
     }
 
     // Invoice Variables
@@ -112,7 +112,7 @@ function bitpay_link($params)
         'buyerPhone'    => $phone,
     );
     
-    $form = '<form action="' . $systemurl . '/modules/gateways/bit-pay/createinvoice.php" method="POST">';
+    $form = '<form action="' . $systemurl . '/modules/gateways/btcpay/createinvoice.php" method="POST">';
 
     foreach ($post as $key => $value) {
         $form .= '<input type="hidden" name="' . $key . '" value = "' . $value . '" />';

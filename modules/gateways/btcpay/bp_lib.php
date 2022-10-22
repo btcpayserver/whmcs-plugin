@@ -76,12 +76,12 @@ function bpCurl($url, $apiKey, $post = false)
     
     if ($responseString == false) {
         $response = array('error' => curl_error($curl));
-        bpLog('[ERROR] In modules/gateways/bitpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($response, true));
+        bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($response, true));
     } else {
         $response = json_decode($responseString, true);
 
         if (!$response) {
-            bpLog('[ERROR] In modules/gateways/bitpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($responseString, true));
+            bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($responseString, true));
             $response = array('error' => 'invalid json: ' . $responseString);
         }
     }

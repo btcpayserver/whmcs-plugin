@@ -36,11 +36,11 @@ if (file_exists('../../../dbconnect.php')) {
 } else if (file_exists('../../../init.php')) {
     include '../../../init.php';
 } else {
-    bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
-    die('[ERROR] In modules/gateways/bitpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
+    bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
+    die('[ERROR] In modules/gateways/btcpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
 }
 
-$gatewaymodule = 'bitpay';
+$gatewaymodule = 'btcpay';
 
 $GATEWAY = getGatewayVariables($gatewaymodule);
 
@@ -51,8 +51,8 @@ $result    = Capsule::connection()->select("SELECT tblinvoices.total, tblinvoice
 $data      = (array)$result[0];
 
 if (!$data) {
-    bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: No invoice found for invoice id #' . $invoiceId);
-    die('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invalid invoice id #' . $invoiceId);
+    bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: No invoice found for invoice id #' . $invoiceId);
+    die('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invalid invoice id #' . $invoiceId);
 }
 
 $price    = $data['total'];
@@ -60,8 +60,8 @@ $currency = $data['code'];
 $status   = $data['status'];
 
 if ($status != 'Unpaid') {
-    bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice status must be Unpaid.  Status: ' . $status);
-    die('[ERROR] In modules/gateways/bitpay/createinvoice.php: Bad invoice status of ' . $status);
+    bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invoice status must be Unpaid.  Status: ' . $status);
+    die('[ERROR] In modules/gateways/btcpay/createinvoice.php: Bad invoice status of ' . $status);
 }
 
 // if convert-to option is set (gateway setting), then convert to requested currency
@@ -81,16 +81,16 @@ if ($convertTo) {
     $currentCurrency = (array)$result[0];
 
     if (!$currentCurrency) {
-        bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invalid invoice currency of ' . $currency);
-        die('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invalid invoice currency of ' . $currency);
+        bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invalid invoice currency of ' . $currency);
+        die('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invalid invoice currency of ' . $currency);
     }
 
     $result            = Capsule::connection()->select("SELECT code, rate FROM tblcurrencies where `id` = $convertTo");
     $convertToCurrency = (array)$result[0];
 
     if (!$convertToCurrency) {
-        bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invalid convertTo currency of ' . $convertTo);
-        die('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invalid convertTo currency of ' . $convertTo);
+        bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invalid convertTo currency of ' . $convertTo);
+        die('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invalid convertTo currency of ' . $convertTo);
     }
 
     $currency = $convertToCurrency['code'];
@@ -105,7 +105,7 @@ unset($options['systemURL']);
 unset($options['redirectURL']);
 
 
-$options['notificationURL'] = $_POST['systemURL'] . '/modules/gateways/callback/bitpay.php';
+$options['notificationURL'] = $_POST['systemURL'] . '/modules/gateways/callback/btcpay.php';
 $options['redirectURL'] = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redirectURL'] : $_POST['systemURL'];
 $options['apiKey'] = $GATEWAY['apiKey'];
 $options['transactionSpeed'] = $GATEWAY['transactionSpeed'];
@@ -115,13 +115,13 @@ $options['btcpayUrl'] = $GATEWAY['btcpayUrl'];
 $invoice = bpCreateInvoice($invoiceId, $price, $invoiceId, $options);
 
 if (isset($invoice['error'])) {
-    bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
-    die('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
+    bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
+    die('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
 } else {
     if (!empty($invoice['data']['url'])) {
         header('Location: ' . $invoice['data']['url']);
     } else {
         $invError = "Something went wrong when creating the invoice and redirecting to BTCPay Server.";
-        bpLog('[ERROR] In modules/gateways/bitpay/createinvoice.php: Invoice error: ' . $invError);
+        bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invoice error: ' . $invError);
     }
 }
