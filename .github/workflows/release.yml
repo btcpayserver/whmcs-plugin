@@ -23,12 +23,12 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: 'zip'
-          filename: 'BTCPay-WHMCS-Plugin-${{ env.GITHUB_REF }}.zip'
+          filename: 'BTCPay-WHMCS-Plugin-${{ github.ref_name }}.zip'
           exclusions: '*.git* *.github* composer.* README.md GUIDE.md'
       - name: Upload artifact to release page.
         uses: ncipollo/release-action@v1
         with:
-          artifacts: 'BTCPay-WHMCS-Plugin-${{ env.GITHUB_REF }}.zip'
+          artifacts: 'BTCPay-WHMCS-Plugin-${{ github.ref_name }}.zip'
           removeArtifacts: true
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
