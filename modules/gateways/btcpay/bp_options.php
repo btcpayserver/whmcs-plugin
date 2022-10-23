@@ -25,24 +25,24 @@
 
 global $bpOptions;
 
-// Please look carefully throught these options and adjust according to your installation.
+// Please look carefully through these options and adjust according to your installation.
 // Alternatively, any of these options can be dynamically set upon calling the functions in bp_lib.
 
-// REQUIRED Api key you created at bitpay.com
+// REQUIRED Api key you created on your BTCPay Server store.
 // example: $bpOptions['apiKey'] = 'L21K5IIUG3IN2J3';
 $bpOptions['apiKey'] = '';
 
-// URI to your BTCPay server
+// URI to your BTCPay server instance.
 $bpOptions['btcpayUrl'] = '';
 
 // whether to verify POS data by hashing above api key.  If set to false, you should
-// have some way of verifying that callback data comes from bitpay.com
+// have some way of verifying that callback data comes from BTCPay Server.
 $bpOptions['verifyPos'] = true;
 
 // email where invoice update notifications should be sent
 $bpOptions['notificationEmail'] = '';
 
-// url where bitpay server should send update notifications.  See API doc for more details.
+// url where BTCPay Server should send update notifications.  See API doc for more details.
 # example: $bpNotificationUrl = 'http://www.example.com/callback.php';
 $bpOptions['notificationURL'] = '';
 
@@ -50,8 +50,7 @@ $bpOptions['notificationURL'] = '';
 # example: $bpNotificationUrl = 'http://www.example.com/confirmation.php';
 $bpOptions['redirectURL'] = '';
 
-// This is the currency used for the price setting.  A list of other pricing
-// currencies supported is found at bitpay.com
+// This is the currency used for the price setting.
 $bpOptions['currency'] = 'BTC';
 
 // Indicates whether anything is to be shipped with
@@ -66,4 +65,4 @@ $bpOptions['physical'] = 'true';
 $bpOptions['fullNotifications'] = 'true';
 
 // transaction speed: low/medium/high.   See API docs for more details.
-$bpOptions['transactionSpeed'] = 'low';
+$bpOptions['transactionSpeed'] = 'medium';

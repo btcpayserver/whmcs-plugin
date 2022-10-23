@@ -2,7 +2,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2011-2018 BitPay
+ * Copyright (c) 2011-2018 BitPay, BTCPay server (c) 2019-2022
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,28 +23,39 @@
  * THE SOFTWARE.
  */
 
+function btcpay_MetaData()
+{
+    return [
+      'DisplayName' => 'BTCPay Server (legacy API)',
+      'failedEmail' => 'Credit Card Payment Failed',
+      'successEmail' => 'BTCPay Payment Success',
+      'pendingEmail' => 'BTCPay Payment Pending',
+      'APIVersion' => '1.1',
+    ];
+}
+
 /**
  * Returns configuration options array.
  *
  * @return array
  */
-function bitpay_config()
+function btcpay_config()
 {
     $configarray = array(
         "FriendlyName" => array(
             "Type" => "System",
-            "Value"=>"BitPay"
+            "Value" => "BTCPay Server (legacy API)"
         ),
         'apiKey' => array(
-            'FriendlyName' => 'Legacy API Key from your bitpay.com merchant account.',
-            'Type'         => 'text'
+            'FriendlyName' => 'Legacy API Key from your BTCPay Server store.',
+            'Type' => 'text'
         ),
         'btcpayUrl' => array(
             'FriendlyName' => 'URI to your BTCPay server',
-            'Type'         => 'text'
+            'Type' => 'text'
         ),
         'redirectURL' => array(
-                'FriendlyName' => 'Redirect URL after BitPay invoice',
+                'FriendlyName' => 'Redirect URL after invoice',
                 'Type' => 'text',
                 'Value' => isset($_POST['redirectURL']) ? $_POST['redirectURL'] : $_POST['systemURL']
         ),
@@ -64,10 +75,10 @@ function bitpay_config()
  * @param  array  $params
  * @return string
  */
-function bitpay_link($params)
+function btcpay_link($params)
 {
     if (false === isset($params) || true === empty($params)) {
-        die('[ERROR] In modules/gateways/bitpay.php::bitpay_link() function: Missing or invalid $params data.');
+        die('[ERROR] In modules/gateways/btcpay.php::btcpay_link() function: Missing or invalid $params data.');
     }
 
     // Invoice Variables
@@ -101,7 +112,7 @@ function bitpay_link($params)
         'buyerPhone'    => $phone,
     );
     
-    $form = '<form action="' . $systemurl . '/modules/gateways/bit-pay/createinvoice.php" method="POST">';
+    $form = '<form action="' . $systemurl . '/modules/gateways/btcpay/createinvoice.php" method="POST">';
 
     foreach ($post as $key => $value) {
         $form .= '<input type="hidden" name="' . $key . '" value = "' . $value . '" />';

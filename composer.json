@@ -1,25 +1,23 @@
 {
-    "name": "bitpay/whmcs",
-    "description": "BitPay payment plugin for WHMCS",
+    "name": "btcpayserver/whmcs",
+    "description": "BTCPay Server payment plugin for WHMCS",
     "type": "whmcs-plugin",
-    "keywords": ["whmcs","plugin","payment","ecommerce","bitcoin","bitpay"],
-    "homepage": "https://github.com/bitpay/whmcs-plugin",
+    "keywords": ["whmcs","plugin","payment","ecommerce","bitcoin","btcpay","btcpayserver"],
+    "homepage": "https://github.com/btcpayserver/whmcs-plugin",
     "license": "MIT",
     "support": {
-        "email": "support@bitpay.com",
-        "issues": "https://github.com/bitpay/whmcs-plugin/issues",
-        "source": "https://github.com/bitpay/whmcs-plugin"
+        "email": "support@btcpayserver.org",
+        "issues": "https://github.com/btcpayserver/whmcs-plugin/issues",
+        "source": "https://github.com/btcpayserver/whmcs-plugin"
     },
     "minimum-stability": "stable",
     "authors": [
         {
-            "name": "BitPay Integrations Development Team",
-            "email": "integrations@bitpay.com",
-            "homepage": "https://bitpay.com/integrations"
+            "name": "BTCPay Server Integrations Development Team"
         }
     ],
     "require": {
-        "php": ">=5.4",
+        "php": ">=7.4",
         "ext-curl": "*",
         "ext-json": "*",
         "composer/installers": "~1.0"

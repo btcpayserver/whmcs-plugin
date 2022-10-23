@@ -1,4 +1,4 @@
 <?php
 
 global $version;
-$version = "1.1.2";
+$version = "3.0.0";

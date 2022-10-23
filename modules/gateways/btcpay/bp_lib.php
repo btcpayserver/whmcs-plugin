@@ -2,7 +2,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2011-2018 BitPay
+ * Copyright (c) 2011-2018 BitPay, BTCPay server (c) 2019-2022
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -43,6 +43,7 @@ function bpLog($contents)
 function bpCurl($url, $apiKey, $post = false)
 {
     global $bpOptions;
+    global $version;
 
     $curl   = curl_init($url);
     $length = 0;
@@ -58,7 +59,7 @@ function bpCurl($url, $apiKey, $post = false)
         'Content-Type: application/json',
         'Content-Length: ' . $length,
         'Authorization: Basic ' . $uname,
-        'X-BitPay-Plugin-Info: whmcs'. $version,
+        'X-BitPay-Plugin-Info: whmcs '. $version,
     );
 
     curl_setopt($curl, CURLOPT_PORT, 443);
@@ -74,13 +75,13 @@ function bpCurl($url, $apiKey, $post = false)
     $responseString = curl_exec($curl);
     
     if ($responseString == false) {
-        $response = array('error' => curl_error($curl));
-        bpLog('[ERROR] In modules/gateways/bitpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($response, true));
+        $response = array('error' => 'curl errno: ' . curl_errno($curl) . ', error: ' . curl_error($curl));
+        bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($response, true));
     } else {
         $response = json_decode($responseString, true);
 
         if (!$response) {
-            bpLog('[ERROR] In modules/gateways/bitpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($responseString, true));
+            bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Could not decode json, status: ' . curl_errno($curl)  . ' responseString: ' . var_export($responseString, true));
             $response = array('error' => 'invalid json: ' . $responseString);
         }
     }
@@ -90,7 +91,7 @@ function bpCurl($url, $apiKey, $post = false)
     return $response;
 }
 
-public function getFullUri($baseUri, $path)
+function getFullUri($baseUri, $path)
 {
     $uriNormalized = rtrim($baseUri, '/');
     $pathNormalized = ltrim($path, '/');
@@ -142,7 +143,7 @@ function bpCreateInvoice($orderId, $price, $posData, $options = array())
     $options['orderID']  = $orderId;
     $options['price']    = $price;
 
-    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoice");
+    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoices");
 
     $postOptions = array('orderID', 'itemDesc', 'itemCode', 'notificationEmail', 'notificationURL', 'redirectURL',
         'posData', 'price', 'currency', 'physical', 'fullNotifications', 'transactionSpeed', 'buyerName',
@@ -154,7 +155,7 @@ function bpCreateInvoice($orderId, $price, $posData, $options = array())
         }
     }
 
-    $post     = json_encode($post);
+    $post = json_encode($post);
 
     $response = bpCurl($btcpayUrl, $options['apiKey'], $post);
 
@@ -195,7 +196,7 @@ function bpVerifyNotification($apiKey = false, $btcpayUrl = null)
     $posData = json_decode($json['posData'], true);
 
     if ($bpOptions['verifyPos'] and $posData['hash'] != crypt($posData['posData'], $apiKey)) {
-        return 'ERROR: authentication failed (bad hash)';
+        return 'ERROR: payload validation failed (bad hash)';
     }
 
     $json['posData'] = $posData['posData'];
@@ -223,17 +224,22 @@ function bpGetInvoice($invoiceId, $apiKey = false, $btcpayUrl = null)
         $apiKey = $bpOptions['apiKey'];
     }
 
-    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoice");
-    $response = bpCurl($btcpayUrl . $invoiceId, $apiKey);
+    if (!$btcpayUrl) {
+        $btcpayUrl = $bpOptions['btcpayUrl'];
+    }
+
+    $btcpayUrl = getFullUri($btcpayUrl,"/invoices");
+
+    $response = bpCurl($btcpayUrl . '/' .  $invoiceId, $apiKey);
 
     if (is_string($response)) {
         return $response; // error
     }
 
-    $response['posData'] = json_decode($response['posData'], true);
+    $response['posData'] = json_decode($response['data']['posData'], true);
 
-    if($bpOptions['verifyPos']) {
-        $response['posData'] = $response['posData']['posData'];
+    if ($bpOptions['verifyPos']) {
+        $response['posData'] = $response['data']['posData'];
     }
 
     return $response;
