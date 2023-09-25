@@ -54,6 +54,10 @@ function btcpay_config()
             'FriendlyName' => 'URI to your BTCPay server',
             'Type' => 'text'
         ),
+        'btcpayUrlTor' => array(
+            'FriendlyName' => 'Tor URI to your BTCPay server',
+            'Type' => 'text'
+        ),
         'redirectURL' => array(
                 'FriendlyName' => 'Redirect URL after invoice',
                 'Type' => 'text',
@@ -96,12 +100,22 @@ function btcpay_link($params)
     $country   = $params['clientdetails']['country'];
     $phone     = $params['clientdetails']['phonenumber'];
 
+    // Tor support
+    $parsedurl = parse_url($params['systemurl']);
+    $is_tor_enabled = preg_match("/\.onion$/", $_SERVER['HTTP_HOST']) && $params['btcpayUrlTor'] != '';
+    if (is_array($parsedurl) && $is_tor_enabled) {
+	$systemtor = "http://{$_SERVER['HTTP_HOST']}" . $parsedurl['path'];
+    } else {
+        $systemtor = "";
+    }
+
     // System Variables
-    $systemurl = $params['systemurl'];
+    $systemurl = $systemtor != '' ? $systemtor : $params['systemurl'];
 
     $post = array(
         'invoiceId'     => $invoiceid,
         'systemURL'     => $systemurl,
+        'ipnURL'        => $params['systemurl'] . '/modules/gateways/callback/btcpay.php',
         'buyerName'     => $firstname . ' ' . $lastname,
         'buyerAddress1' => $address1,
         'buyerAddress2' => $address2,
