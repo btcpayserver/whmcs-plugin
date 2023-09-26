@@ -110,8 +110,8 @@ $options['redirectURL'] = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redirectUR
 $options['apiKey'] = $GATEWAY['apiKey'];
 $options['transactionSpeed'] = $GATEWAY['transactionSpeed'];
 $options['currency'] = $currency;
-$options['btcpayUrl'] = $GATEWAY['btcpayUrl'];
-$options['btcpayUrlTor'] = $GATEWAY['btcpayUrlTor'];
+$options['btcpayUrl'] = rtrim($GATEWAY['btcpayUrl'], "/") . "/";
+$options['btcpayUrlTor'] = rtrim($GATEWAY['btcpayUrlTor'], "/") . "/";
 
 $invoice = bpCreateInvoice($invoiceId, $price, $invoiceId, $options);
 
