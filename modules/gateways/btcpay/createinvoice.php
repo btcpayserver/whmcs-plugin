@@ -105,12 +105,13 @@ unset($options['systemURL']);
 unset($options['redirectURL']);
 
 
-$options['notificationURL'] = $_POST['systemURL'] . '/modules/gateways/callback/btcpay.php';
+$options['notificationURL'] = $_POST['ipnURL'];
 $options['redirectURL'] = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redirectURL'] : $_POST['systemURL'];
 $options['apiKey'] = $GATEWAY['apiKey'];
 $options['transactionSpeed'] = $GATEWAY['transactionSpeed'];
 $options['currency'] = $currency;
-$options['btcpayUrl'] = $GATEWAY['btcpayUrl'];
+$options['btcpayUrl'] = rtrim($GATEWAY['btcpayUrl'], "/") . "/";
+$options['btcpayUrlTor'] = rtrim($GATEWAY['btcpayUrlTor'], "/") . "/";
 
 $invoice = bpCreateInvoice($invoiceId, $price, $invoiceId, $options);
 
@@ -119,6 +120,10 @@ if (isset($invoice['error'])) {
     die('[ERROR] In modules/gateways/btcpay/createinvoice.php: Invoice error: ' . var_export($invoice['error'], true));
 } else {
     if (!empty($invoice['data']['url'])) {
+        $is_tor_enabled = preg_match("/\.onion$/", $_SERVER['HTTP_HOST']) && $options['btcpayUrlTor'] != '';
+        if ($is_tor_enabled) {
+            $invoice['data']['url'] = str_replace($options['btcpayUrl'], $options['btcpayUrlTor'], $invoice['data']['url']);
+        }
         header('Location: ' . $invoice['data']['url']);
     } else {
         $invError = "Something went wrong when creating the invoice and redirecting to BTCPay Server.";
