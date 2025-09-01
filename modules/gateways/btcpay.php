@@ -44,29 +44,34 @@ function btcpay_config()
     $configarray = array(
         "FriendlyName" => array(
             "Type" => "System",
-            "Value" => "BTCPay Server (legacy API)"
+            "Value" => "Bitcoin payments via BTCPay Server"
         ),
         'apiKey' => array(
-            'FriendlyName' => 'Legacy API Key from your BTCPay Server store.',
-            'Type' => 'text'
+            'FriendlyName' => 'Legacy API Key',
+            'Type' => 'text',
+            'Description' => 'Your legacy API key. You can create a new one in your BTCPay Server store settings > Access Tokens.',
         ),
         'btcpayUrl' => array(
-            'FriendlyName' => 'URI to your BTCPay server',
-            'Type' => 'text'
+            'FriendlyName' => 'BTCPay Server URL',
+            'Type' => 'text',
+            'Description' => 'The URL of your BTCPay Server instance, e.g., https://btcpay.example.com.',
         ),
         'btcpayUrlTor' => array(
-            'FriendlyName' => 'Tor URI to your BTCPay server',
-            'Type' => 'text'
+            'FriendlyName' => 'BTCPay Server Tor URL (optional)',
+            'Type' => 'text',
+            'Description' => 'The Tor URL of your BTCPay Server instance. This is optional and only used if WHMCS is accessed via a .onion domain.',
         ),
         'redirectURL' => array(
-                'FriendlyName' => 'Redirect URL after invoice',
+                'FriendlyName' => 'Redirect URL (optional)',
                 'Type' => 'text',
-                'Value' => isset($_POST['redirectURL']) ? $_POST['redirectURL'] : $_POST['systemURL']
+                'Description' => 'URL to redirect to after payment. Leave blank to use the default WHMCS order confirmation page.',
         ),
         'transactionSpeed' => array(
             'FriendlyName' => 'Transaction Speed',
             'Type'         => 'dropdown',
-            'Options'      => 'low,medium,high'
+            'Options'      => 'low,medium,high',
+            'Default'      => 'medium',
+            'Description'  => 'The transaction speed to use for the invoice. Medium is recommended. See docs for a detailed explanation.',
         ),
     );
 
