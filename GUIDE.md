@@ -13,28 +13,42 @@
 
 ## Installation
 
-Extract these files into the WHMCS directory on your webserver (parent directory of
-modules/folder).
+1. Download the latest release from the [releases page](https://github.com/btcpayserver/whmcs-plugin/releases). e.g. BTCPay-WHMCS-Plugin-v3.1.0.zip
+2. Extract the .zip file which will result in a `modules/gateways/btcpay` directory
+3. Copy those files into your WHMCS root directory or copy only the `btcpay` directory so it ends up in the `modules/gateways/` directory
+4. Double check that you now have files in `PATH_TO_WHMCS/modules/gateways/btcpay/` directory
 
 ## Configuration
 
-1. Take a moment to ensure that you have set your store's domain and the WHMCS System URL under **whmcs/admin > Settings Menu > Apps & Integrations**.
-2. Create a "Legacy API Key" on your BTCPay Server store account dashboard:
-  * Log into your BTCPay Server store with username/password.
+### Step 1: On WHMCS
+1. Navigate to **Apps & Integrations** in your admin dashboard.
+2. Search for "BTCPay" and click on the result.
+3. Click on "**Activate**" button to get to the configuration screen.
+4. Head over to your BTCPay Server instance to create an API key.
+
+### Step 2: On your BTCPay Server instance (open in a new tab/browser window)
+1. Log in with your user.
+2. Select the store you want to connect to. Make sure it has setup a wallet so you can receive payments.
+3. Create a "Legacy API Key" on your BTCPay Server store account dashboard:
   * On the left side of the screen, choose **Settings**.
-  * Select the tab **Access Tokens**.
-  * Below the "Legacy API Keys" headline click on the  **Generate** button to instantly create a new one.
-  * Select and copy the entire string for the new API Key ID that you just created. It will look something like this: 43rp4rpa24d6Bz4BR44j8zL44PrU4npVv4DtJA4Kb8.
-3. In the admin control panel, go to **Settings > Apps & Integrations**, on the top right searchbar, search for **BTCPay**. In the list of modules you will see "BTCPay Server (legacy API)".
-  * If you can't find the BTCPay Server plugin in the list of payment gateways -or- in the WHMCS app store, then you may clone this repo and copy modules/gateways into your <whmcs root>/modules/gateways/.
-4. Paste the API Key ID string that you created and copied from step 2. 
-5. Choose a transaction speed. This setting determines how quickly you will receive a payment confirmation from BTCPay Server after an invoice is paid by a customer.
-  * High: A confirmation is sent instantly once the payment has been received by the gateway.
-  * Medium: A confirmation is sent after 1 block confirmation (~10 mins) by the bitcoin network (recommended).
+  * Select subnavigation entry **Access Tokens**.
+  * Below the "Legacy API Keys" headline click on the **Generate** button to instantly create a new one.
+  * Select and copy the entire string for the new API Key ID that you just created. It will look something like this: `43rp4rpa24d6Bz4BR44j8zL44PrU4npVv4DtJA4Kb8`.
+
+### Step 3: Back on WHMCS
+1. Make sure "**Show on Order Form" is checked.
+2. Change "**Display Name**" to what you prefer e.g. "Bitcoin / Lightning Network payments"
+3. Paste key that you created and copied from step 2 above in the field "**Legacy API Key from your BTCPay Server store**".
+4. In "**URI to your BTCPay Server**" enter the domain from your own BTCPay Server instance (e.g. https://mainnet.demo.btcpayserver.org). 
+5. (optional) In "**Tor URI to your BTCPay Server**" you can enter the BTCPay Servers .onion address. Note: this will only work if your WHMCS is also reachable over Tor and/or your users use Tor Browser.
+6. (optional) In "**Redirect URL after invoice**" you can set a custom URL where the customer gets redirected after successful payment. If not it will redirect to the invoice page.
+7. Set "**Transaction Speed**" field. This setting determines how quickly you will receive a payment confirmation from BTCPay Server after an invoice is paid by a customer.
+  * High: A confirmation is sent instantly once the payment has been received by the gateway, means 0-conf, do not use.
+  * Medium: A confirmation is sent after 1 block confirmation (~10 mins) by the bitcoin network (**<== recommended setting**).
   * Low: A confirmation is sent after the usual 6 block confirmations (~1 hour) by the bitcoin network.
 6. Click **Save Changes**.
 
-You're done!
+Congrats, setup is done. Now test if the payment works.
 
 ## Usage
 
