@@ -38,24 +38,24 @@
 ### Step 3: Back on WHMCS
 1. Make sure "**Show on Order Form" is checked.
 2. Change "**Display Name**" to what you prefer e.g. "Bitcoin / Lightning Network payments"
-3. Paste key that you created and copied from step 2 above in the field "**Legacy API Key from your BTCPay Server store**".
-4. In "**URI to your BTCPay Server**" enter the domain from your own BTCPay Server instance (e.g. https://mainnet.demo.btcpayserver.org). 
-5. (optional) In "**Tor URI to your BTCPay Server**" you can enter the BTCPay Servers .onion address. Note: this will only work if your WHMCS is also reachable over Tor and/or your users use Tor Browser.
+3. Paste the api key that you created and copied from step 2 above in the field "**Legacy API Key**".
+4. In "**BTCPay Server URL**" enter the domain from your own BTCPay Server instance (e.g. https://mainnet.demo.btcpayserver.org). 
+5. (optional) In "**BTCPay Server Tor URL**" you can enter the BTCPay Server's .onion address. Note: this will only work if your WHMCS is also reachable over Tor and your users use Tor Browser.
 6. (optional) In "**Redirect URL after invoice**" you can set a custom URL where the customer gets redirected after successful payment. If not it will redirect to the invoice page.
 7. Set "**Transaction Speed**" field. This setting determines how quickly you will receive a payment confirmation from BTCPay Server after an invoice is paid by a customer.
   * High: A confirmation is sent instantly once the payment has been received by the gateway, means 0-conf, do not use.
   * Medium: A confirmation is sent after 1 block confirmation (~10 mins) by the bitcoin network (**<== recommended setting**).
   * Low: A confirmation is sent after the usual 6 block confirmations (~1 hour) by the bitcoin network.
-6. Click **Save Changes**.
+8. Click **Save Changes**.
 
 Congrats, setup is done. Now test if the payment works.
 
 ## Usage
 
-When a client chooses the BTCPay Server payment method, they will be presented with an invoice showing a button they will have to click on in order to pay their order.  Upon requesting to pay their order, the system takes the client to a full-screen invoice page of your BTCPay Server where the client is presented with payment instructions.  Once payment is received, a link is presented to the shopper that will return them to your website.
+When a client chooses the BTCPay Server payment method, they will be presented the option to pay with Bitcoin via BTCPay Server. When clicking on "Complete order" button, they get redirected to a full-screen invoice page of your BTCPay Server where the client is presented with payment instructions.  Once payment is received, they can click "Back to store" to return to your website (by default they will be redirected to the order confirmation page).
 
-**NOTE:** Don't worry!  A payment will automatically update your WHMCS store whether or not the customer returns to your website after they've paid the invoice.
+**NOTE:** In case of on-chain payments that need to get included in a block your customer does not need to wait, the payment status will get updated automatically over a webhook and mark the order as paid, which will trigger the corresponding email confirming the payment.
 
 In your WHMCS control panel, you can see the information associated with each order made via BTCPay Server by choosing **Orders > Pending Orders**.  This screen will tell you whether payment has been received by the BTCPay Server instance. You can also view the details for any paid invoice inside your BTCPay store dashboard under the **Invoices** page.
 
-**NOTE:** This extension does not provide a means of automatically pulling a current BTC exchange rate for presenting BTC prices to shoppers.  If you want to have a BTC currency in your installation, you must update the exchange rate manually.
+**NOTE:** This extension does not provide a means of automatically pulling a current BTC exchange rate for presenting BTC prices for your products to shoppers. This plugin only provides the means to accept payments in BTC and Lightning Network payments. 
