@@ -106,7 +106,7 @@ unset($options['redirectURL']);
 
 
 $options['notificationURL'] = $_POST['ipnURL'];
-$options['redirectURL'] = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redirectURL'] : $_POST['systemURL'];
+$options['redirectURL'] = $options['redirectURL'] = !empty($GATEWAY['redirectURL']) ? $GATEWAY['redirectURL'] : $_POST['systemURL'].'viewinvoice.php?id='.$_POST['invoiceId'].'&paymentsuccess=true';
 $options['apiKey'] = $GATEWAY['apiKey'];
 $options['transactionSpeed'] = $GATEWAY['transactionSpeed'];
 $options['currency'] = $currency;
