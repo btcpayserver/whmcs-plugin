@@ -73,16 +73,30 @@ function bpCurl($url, $apiKey, $post = false)
     curl_setopt($curl, CURLOPT_FRESH_CONNECT, 1);
 
     $responseString = curl_exec($curl);
+    $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($curl);
+    $curlErrno = curl_errno($curl);
     
-    if ($responseString == false) {
-        $response = array('error' => 'curl errno: ' . curl_errno($curl) . ', error: ' . curl_error($curl));
-        bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Invalid response received: ' . var_export($response, true));
+    if ($responseString === false) {
+        $response = array('error' => 'curl errno: ' . $curlErrno . ', error: ' . $curlError);
+        bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): cURL request failed: ' . var_export($response, true));
     } else {
         $response = json_decode($responseString, true);
 
-        if (!$response) {
-            bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Could not decode json, status: ' . curl_errno($curl)  . ' responseString: ' . var_export($responseString, true));
-            $response = array('error' => 'invalid json: ' . $responseString);
+        if ($response === null && json_last_error() !== JSON_ERROR_NONE) {
+            $jsonError = json_last_error_msg();
+            $responsePreview = empty($responseString) ? '[EMPTY RESPONSE]' : (strlen($responseString) > 200 ? substr($responseString, 0, 200) . '...' : $responseString);
+            
+            bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): JSON decode failed. HTTP Code: ' . $httpCode . ', JSON Error: ' . $jsonError . ', cURL errno: ' . $curlErrno . ', Response: ' . var_export($responsePreview, true));
+            
+            $errorMsg = 'JSON decode failed (HTTP ' . $httpCode . '): ' . $jsonError;
+            if (!empty($responseString)) {
+                $errorMsg .= '. Response: ' . $responsePreview;
+            } else {
+                $errorMsg .= '. Empty response received from BTCPay Server.';
+            }
+            
+            $response = array('error' => $errorMsg);
         }
     }
 
