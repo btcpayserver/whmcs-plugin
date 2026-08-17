@@ -35,9 +35,9 @@ $bpOptions['apiKey'] = '';
 // URI to your BTCPay server instance.
 $bpOptions['btcpayUrl'] = '';
 
-// whether to verify POS data by hashing above api key.  If set to false, you should
-// have some way of verifying that callback data comes from BTCPay Server.
-$bpOptions['verifyPos'] = true;
+// Deprecated legacy compatibility switch. The callback never trusts posted POS
+// data and authenticates the invoice by re-fetching it from BTCPay instead.
+$bpOptions['verifyPos'] = false;
 
 // email where invoice update notifications should be sent
 $bpOptions['notificationEmail'] = '';
@@ -56,13 +56,13 @@ $bpOptions['currency'] = 'BTC';
 // Indicates whether anything is to be shipped with
 // the order (if false, the buyer will be informed that nothing is
 // to be shipped)
-$bpOptions['physical'] = 'true';
+$bpOptions['physical'] = true;
 
 // If set to false, then notificaitions are only
 // sent when an invoice is confirmed (according the the
 // transactionSpeed setting). If set to true, then a notification
 // will be sent on every status change
-$bpOptions['fullNotifications'] = 'true';
+$bpOptions['fullNotifications'] = true;
 
 // transaction speed: low/medium/high.   See API docs for more details.
 $bpOptions['transactionSpeed'] = 'medium';

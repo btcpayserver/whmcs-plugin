@@ -23,6 +23,8 @@
  * THE SOFTWARE.
  */
 
+require_once __DIR__ . '/btcpay/bp_security.php';
+
 function btcpay_MetaData()
 {
     return [
@@ -48,7 +50,7 @@ function btcpay_config()
         ),
         'apiKey' => array(
             'FriendlyName' => 'Legacy API Key',
-            'Type' => 'text',
+            'Type' => 'password',
             'Description' => 'Your legacy API key. You can create a new one in your BTCPay Server store settings > Access Tokens.',
         ),
         'btcpayUrl' => array(
@@ -73,6 +75,11 @@ function btcpay_config()
             'Default'      => 'medium',
             'Description'  => 'The transaction speed to use for the invoice. Medium is recommended. See docs for a detailed explanation.',
         ),
+        'callbackDiagnostics' => array(
+            'FriendlyName' => 'Callback Diagnostics',
+            'Type' => 'yesno',
+            'Description' => 'Temporarily log safe callback stages in the WHMCS Gateway Log and Activity Log. Request bodies and API credentials are never logged.',
+        ),
     );
 
     return $configarray;
@@ -90,54 +97,29 @@ function btcpay_link($params)
         die('[ERROR] In modules/gateways/btcpay.php::btcpay_link() function: Missing or invalid $params data.');
     }
 
-    // Invoice Variables
-    $invoiceid = $params['invoiceid'];
-
-    // Client Variables
-    $firstname = $params['clientdetails']['firstname'];
-    $lastname  = $params['clientdetails']['lastname'];
-    $email     = $params['clientdetails']['email'];
-    $address1  = $params['clientdetails']['address1'];
-    $address2  = $params['clientdetails']['address2'];
-    $city      = $params['clientdetails']['city'];
-    $state     = $params['clientdetails']['state'];
-    $postcode  = $params['clientdetails']['postcode'];
-    $country   = $params['clientdetails']['country'];
-    $phone     = $params['clientdetails']['phonenumber'];
-
-    // Tor support
-    $parsedurl = parse_url($params['systemurl']);
-    $is_tor_enabled = preg_match("/\.onion$/", $_SERVER['HTTP_HOST']) && $params['btcpayUrlTor'] != '';
-    if (is_array($parsedurl) && $is_tor_enabled) {
-	$systemtor = "http://{$_SERVER['HTTP_HOST']}" . $parsedurl['path'];
-    } else {
-        $systemtor = "";
+    if (!isset($params['invoiceid'], $params['systemurl'], $params['langpaynow'])) {
+        die('[ERROR] In modules/gateways/btcpay.php::btcpay_link() function: Missing required gateway data.');
     }
 
-    // System Variables
-    $systemurl = $systemtor != '' ? $systemtor : $params['systemurl'];
+    try {
+        $action = bpBuildGatewayFormAction($params['systemurl']);
+    } catch (Throwable $exception) {
+        error_log('[ERROR] In modules/gateways/btcpay.php::btcpay_link() function: Invalid WHMCS system URL.');
+        die('[ERROR] In modules/gateways/btcpay.php::btcpay_link() function: Invalid gateway configuration.');
+    }
 
-    $post = array(
-        'invoiceId'     => $invoiceid,
-        'systemURL'     => $systemurl,
-        'ipnURL'        => $params['systemurl'] . '/modules/gateways/callback/btcpay.php',
-        'buyerName'     => $firstname . ' ' . $lastname,
-        'buyerAddress1' => $address1,
-        'buyerAddress2' => $address2,
-        'buyerCity'     => $city,
-        'buyerState'    => $state,
-        'buyerZip'      => $postcode,
-        'buyerEmail'    => $email,
-        'buyerPhone'    => $phone,
-    );
-    
-    $form = '<form action="' . $systemurl . '/modules/gateways/btcpay/createinvoice.php" method="POST">';
+    // Buyer metadata is loaded from WHMCS by the endpoint. The browser only
+    // identifies the invoice, whose ownership is independently checked there.
+    $post = array('invoiceId' => $params['invoiceid']);
+
+    $form = '<form action="' . bpEscapeHtmlAttribute($action) . '" method="post">';
 
     foreach ($post as $key => $value) {
-        $form .= '<input type="hidden" name="' . $key . '" value = "' . $value . '" />';
+        $form .= '<input type="hidden" name="' . bpEscapeHtmlAttribute($key) .
+            '" value="' . bpEscapeHtmlAttribute($value) . '" />';
     }
 
-    $form .= '<input type="submit" value="' . $params['langpaynow'] . '" />';
+    $form .= '<input type="submit" value="' . bpEscapeHtmlAttribute($params['langpaynow']) . '" />';
     $form .= '</form>';
 
     return $form;

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - PHP version 8.1 or newer, lower versions may work but are not maintained
-- The curl, gd, intl, json, gmp (or bcmath) and mbstring PHP extensions are available
+- The bcmath, curl, gd, intl, json and mbstring PHP extensions are available
 - WHMCS ([Download and installation instructions](https://download.whmcs.com/))
 - You have a BTCPay Server version 1.3.0 or later, either [self-hosted](https://docs.btcpayserver.org/Deployment/) or [hosted by a third-party](https://docs.btcpayserver.org/Deployment/ThirdPartyHosting/)
 - [You've a registered account on the instance](https://docs.btcpayserver.org/RegisterAccount/)
@@ -17,6 +17,16 @@
 2. Extract the .zip file which will result in a `modules/gateways/btcpay` directory
 3. Copy those files into your WHMCS root directory or copy only the `btcpay` directory so it ends up in the `modules/gateways/` directory
 4. Double check that you now have files in `PATH_TO_WHMCS/modules/gateways/btcpay/` directory
+
+### Security upgrade note
+
+This version creates a `mod_btcpay_invoice_contracts` table in the WHMCS database before it creates the first new BTCPay invoice. The WHMCS database user must have permission to create this table.
+
+Callbacks for BTCPay invoices created by older plugin versions are intentionally rejected because they have no persisted amount, currency, or invoice-ID contract. Deploy the update when no BTCPay checkout is active and allow the normal BTCPay invoice-expiration window to pass before replacing the old files.
+
+Invoice creation now requires an authenticated WHMCS client session that owns the invoice. Callback and return URLs are loaded from WHMCS rather than accepted from the browser, and buyer profile data is not sent to BTCPay. Repeated or concurrent submissions reuse a matching active BTCPay invoice.
+
+The callback accepts only bounded JSON POST requests. If BTCPay later reports an already-credited transaction as `invalid` or unexpectedly `expired`, the plugin does not reverse accounting automatically; it records a **MANUAL REVIEW REQUIRED** entry in the gateway transaction log, WHMCS activity log, and PHP error log. An administrator must reconcile that invoice and transaction.
 
 ## Configuration
 
@@ -46,7 +56,8 @@
   * High: A confirmation is sent instantly once the payment has been received by the gateway, means 0-conf, do not use.
   * Medium: A confirmation is sent after 1 block confirmation (~10 mins) by the bitcoin network (**<== recommended setting**).
   * Low: A confirmation is sent after the usual 6 block confirmations (~1 hour) by the bitcoin network.
-8. Click **Save Changes**.
+8. (optional, while troubleshooting) Check **Callback Diagnostics**. This records safe callback stages in the WHMCS Gateway Log, Activity Log, and PHP error log. It does not record callback bodies, cookies, buyer details, or API credentials.
+9. Click **Save Changes**.
 
 Congrats, setup is done. Now test if the payment works.
 
@@ -54,8 +65,38 @@ Congrats, setup is done. Now test if the payment works.
 
 When a client chooses the BTCPay Server payment method, they will be presented the option to pay with Bitcoin via BTCPay Server. When clicking on "Complete order" button, they get redirected to a full-screen invoice page of your BTCPay Server where the client is presented with payment instructions.  Once payment is received, they can click "Back to store" to return to your website (by default they will be redirected to the order confirmation page).
 
-**NOTE:** In case of on-chain payments that need to get included in a block your customer does not need to wait, the payment status will get updated automatically over a webhook and mark the order as paid, which will trigger the corresponding email confirming the payment.
+**NOTE:** In case of on-chain payments that need to get included in a block your customer does not need to wait on the checkout page. The browser return does not mark the invoice paid. BTCPay sends a separate server-to-server legacy IPN when the configured confirmation threshold is reached; the plugin then marks the WHMCS invoice paid and triggers the corresponding WHMCS actions.
 
 In your WHMCS control panel, you can see the information associated with each order made via BTCPay Server by choosing **Orders > Pending Orders**.  This screen will tell you whether payment has been received by the BTCPay Server instance. You can also view the details for any paid invoice inside your BTCPay store dashboard under the **Invoices** page.
 
-**NOTE:** This extension does not provide a means of automatically pulling a current BTC exchange rate for presenting BTC prices for your products to shoppers. This plugin only provides the means to accept payments in BTC and Lightning Network payments. 
+**NOTE:** This extension does not provide a means of automatically pulling a current BTC exchange rate for presenting BTC prices for your products to shoppers. This plugin only provides the means to accept payments in BTC and Lightning Network payments.
+
+## Callback troubleshooting
+
+The payment return URL and payment notification URL serve different purposes. A successful return to `viewinvoice.php?id=...&paymentsuccess=true` only proves that the customer's browser can reach WHMCS. It does not prove that the BTCPay server can POST to:
+
+```text
+https://your-whmcs.example/modules/gateways/callback/btcpay.php
+```
+
+For an on-chain payment, a `paid` callback is recorded but does not credit WHMCS yet. With **medium** transaction speed the invoice is credited after one block confirmation; with **low**, after six. Lightning normally reaches the confirmation stage immediately.
+
+To trace a payment:
+
+1. Enable **Callback Diagnostics** in the BTCPay gateway configuration and save the settings.
+2. Open the affected invoice in BTCPay Server and inspect its **Events** section. Legacy notifications appear as `IPN ... sent` or `Error while sending IPN ...`. An HTTP 403, timeout, DNS error, or TLS error means the request did not complete successfully.
+3. In WHMCS, open **Billing > Gateway Log** and **Configuration > System Logs > Activity Log**, then search for `BTCPay callback` or the trace ID. The useful stages are `request_received`, `invoice_verified`, `awaiting_confirmation`, `payment_applied`, `duplicate_callback`, and `callback_rejected`.
+4. Disable **Callback Diagnostics** after testing to avoid unnecessary log volume.
+
+Interpret the result as follows:
+
+| Last evidence | Meaning |
+| --- | --- |
+| BTCPay reports an IPN error and WHMCS has no `request_received` entry | A firewall, reverse proxy, IP allowlist, DNS, or TLS layer blocked the request before PHP. |
+| `request_received`, followed by `callback_rejected` | PHP received the request. Use the trace ID and HTTP status in the WHMCS logs to locate the validation or upstream API error. |
+| `invoice_verified` with `status: paid`, followed by `awaiting_confirmation` | The callback works; the selected confirmation threshold has not been reached yet. |
+| `payment_applied` | `addInvoicePayment()` completed and WHMCS should contain an invoice transaction. |
+
+In the current callback, HTTP 400 is reserved for a malformed request or invalid BTCPay invoice ID. HTTP 409 indicates that the authenticated invoice has no persisted mapping or does not match its WHMCS contract. The Gateway Log includes the specific verification error.
+
+If the WHMCS installation is IP-restricted, allowing the DNS A record of the BTCPay hostname may not be sufficient: the server's outbound source address can differ because of NAT, a reverse proxy, IPv6, or hosting infrastructure. Determine the actual source address from the firewall/access log or BTCPay's IPN error details. The simplest reliable setup is to make only the exact callback path public (optionally rate-limited) while keeping the rest of WHMCS restricted. The callback does not trust the posted payment state: it re-fetches the invoice through the authenticated BTCPay API and validates its persisted invoice ID, amount, currency, and WHMCS mapping before applying payment.

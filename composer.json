@@ -18,6 +18,7 @@
     ],
     "require": {
         "php": ">=7.4",
+        "ext-bcmath": "*",
         "ext-curl": "*",
         "ext-json": "*",
         "composer/installers": "~1.0"
