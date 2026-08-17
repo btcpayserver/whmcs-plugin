@@ -8,7 +8,7 @@ To get up and running with our plugin quickly, see the GUIDE here: https://githu
 
 ## Support
 
-* WHMCS version tested: v8.13
+* WHMCS version tested: v9.0.6
 * [GitHub Issues](https://github.com/btcpayserver/whmcs-plugin/issues)
 * Open an issue if you are having troubles with this plugin
 
