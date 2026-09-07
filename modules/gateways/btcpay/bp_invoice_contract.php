@@ -97,8 +97,8 @@ function bpDecimalIsPositive($value)
  *
  * WHMCS rates are relative to the base currency, so the conversion is:
  * amount / current rate * target rate. Results are rounded half-up to eight
- * decimal places, matching the maximum precision this legacy integration sends
- * to BTCPay.
+ * decimal places, matching the maximum precision this integration sends to
+ * the BTCPay Greenfield API.
  *
  * @param mixed $amount
  * @param mixed $currentRate
@@ -167,7 +167,8 @@ function bpNormalizeCurrencyCode($currency)
 function bpValidateBtcpayInvoiceContract(array $invoiceData, $contract, $requireStatus = true)
 {
     $contract = (array) $contract;
-    $requiredData = array('id', 'orderId', 'price', 'currency');
+    // Greenfield invoice shape: id, amount, currency, status, metadata.orderId.
+    $requiredData = array('id', 'amount', 'currency', 'metadata');
     if ($requireStatus) {
         $requiredData[] = 'status';
     }
@@ -195,13 +196,13 @@ function bpValidateBtcpayInvoiceContract(array $invoiceData, $contract, $require
         return 'BTCPay invoice ID does not match the stored invoice contract.';
     }
 
-    if (!is_scalar($invoiceData['orderId']) ||
-        (string) $contract['whmcs_invoice_id'] !== (string) $invoiceData['orderId']) {
+    $orderId = bpInvoiceOrderId($invoiceData);
+    if ($orderId === null || (string) $contract['whmcs_invoice_id'] !== $orderId) {
         return 'BTCPay order ID does not match the stored WHMCS invoice ID.';
     }
 
     try {
-        if (!bpDecimalEquals($contract['btcpay_amount'], $invoiceData['price'])) {
+        if (!bpDecimalEquals($contract['btcpay_amount'], $invoiceData['amount'])) {
             return 'BTCPay amount does not match the stored invoice contract.';
         }
         if (bpNormalizeCurrencyCode($contract['btcpay_currency']) !==
@@ -237,8 +238,8 @@ function bpValidateCreatedInvoiceData(
         return 'BTCPay invoice creation response is missing a valid invoice ID.';
     }
 
-    if (!array_key_exists('url', $invoiceData) || !is_string($invoiceData['url']) ||
-        trim($invoiceData['url']) === '') {
+    if (!array_key_exists('checkoutLink', $invoiceData) || !is_string($invoiceData['checkoutLink']) ||
+        trim($invoiceData['checkoutLink']) === '') {
         return 'BTCPay invoice creation response is missing a valid checkout URL.';
     }
 

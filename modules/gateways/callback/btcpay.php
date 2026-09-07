@@ -2,7 +2,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2011-2015 BitPay
+ * Copyright (c) 2011-2018 BitPay, BTCPay server (c) 2019-2022
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,6 +21,16 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
+ */
+
+/**
+ * BTCPay Server Greenfield webhook receiver.
+ *
+ * Register this URL as a webhook in BTCPay (Store Settings > Webhooks) and
+ * enter the webhook secret in the WHMCS gateway configuration. Deliveries are
+ * authenticated with the BTCPay-Sig HMAC header and then, as defense in depth,
+ * the invoice is re-fetched through the authenticated Greenfield API. The
+ * delivery payload itself is used only to select which invoice to re-fetch.
  */
 
 // Required File Includes
@@ -68,7 +78,7 @@ function bpWriteCallbackTrace(array $gateway, $traceId, $stage, array $context =
         : 'unknown_stage';
     $context = array_merge(array('trace_id' => (string) $traceId), $context);
     $encodedContext = bpFormatCallbackDiagnosticContext($context);
-    $message = 'BTCPay callback [' . $traceId . '] ' . $stage . ' ' . $encodedContext;
+    $message = 'BTCPay webhook [' . $traceId . '] ' . $stage . ' ' . $encodedContext;
     $gatewayName = isset($gateway['name']) && is_scalar($gateway['name'])
         ? (string) $gateway['name']
         : 'BTCPay Server';
@@ -83,7 +93,7 @@ function bpWriteCallbackTrace(array $gateway, $traceId, $stage, array $context =
         try {
             logActivity($message);
         } catch (Throwable $exception) {
-            bpLog('[WARNING] Unable to write BTCPay callback trace ' . $traceId . ' to the Activity Log.');
+            bpLog('[WARNING] Unable to write BTCPay webhook trace ' . $traceId . ' to the Activity Log.');
         }
     }
 
@@ -92,10 +102,10 @@ function bpWriteCallbackTrace(array $gateway, $traceId, $stage, array $context =
             logTransaction(
                 $gatewayName,
                 $context,
-                'Callback diagnostics: ' . $stage
+                'Webhook diagnostics: ' . $stage
             );
         } catch (Throwable $exception) {
-            bpLog('[WARNING] Unable to write BTCPay callback trace ' . $traceId . ' to the Gateway Log.');
+            bpLog('[WARNING] Unable to write BTCPay webhook trace ' . $traceId . ' to the Gateway Log.');
         }
     }
 }
@@ -156,6 +166,21 @@ if (!$GATEWAY['type']) {
     bpAbortCallback(503, 'Payment gateway is unavailable.');
 }
 
+$webhookSecret = isset($GATEWAY['webhookSecret']) ? trim((string) $GATEWAY['webhookSecret']) : '';
+if ($webhookSecret === '') {
+    logTransaction($GATEWAY['name'], array(), 'Webhook secret is not configured');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: The webhook secret is not configured in the gateway settings. Refusing unauthenticated webhook deliveries.');
+    bpAbortCallback(503, 'Webhook secret is not configured.');
+}
+
+try {
+    $storeId = bpNormalizeStoreId(isset($GATEWAY['storeId']) ? $GATEWAY['storeId'] : null);
+} catch (Throwable $exception) {
+    logTransaction($GATEWAY['name'], array(), 'Store ID is not configured');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: ' . $exception->getMessage());
+    bpAbortCallback(503, 'Store ID is not configured.');
+}
+
 $requestBody = file_get_contents(
     'php://input',
     false,
@@ -171,261 +196,309 @@ bpWriteCallbackTrace(
 );
 $request = bpParseCallbackRequest($_SERVER, $requestBody);
 if (isset($request['error'])) {
-    logTransaction($GATEWAY['name'], array(), 'Rejected callback request: ' . $request['error']);
+    logTransaction($GATEWAY['name'], array(), 'Rejected webhook request: ' . $request['error']);
     bpLog('[ERROR] In modules/gateways/callback/btcpay.php: ' . $request['error']);
     bpAbortCallback($request['status'], $request['error']);
 }
 
-$response = bpVerifyNotification(
-    $GATEWAY['apiKey'],
-    $GATEWAY['btcpayUrl'],
-    $request['payload']
+// Authenticate the delivery: BTCPay-Sig: sha256=HMAC-SHA256(secret, raw body).
+$signatureHeader = bpWebhookSignatureHeader($_SERVER);
+if ($signatureHeader === null) {
+    logTransaction($GATEWAY['name'], array(), 'Rejected webhook request: missing BTCPay-Sig header');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Missing BTCPay-Sig header.');
+    bpAbortCallback(401, 'Missing webhook signature.');
+}
+if (!bpVerifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret)) {
+    logTransaction($GATEWAY['name'], array(), 'Rejected webhook request: invalid BTCPay-Sig signature');
+    bpLog('[SECURITY] In modules/gateways/callback/btcpay.php: Webhook signature verification failed. Check that the Webhook Secret in WHMCS matches the secret of the webhook in BTCPay.');
+    bpAbortCallback(401, 'Invalid webhook signature.');
+}
+bpWriteCallbackTrace($GATEWAY, $callbackTraceId, 'signature_verified');
+
+$event = bpValidateWebhookPayload($request['payload'], $storeId);
+if (isset($event['error'])) {
+    logTransaction($GATEWAY['name'], array(), 'Rejected webhook payload: ' . $event['error']);
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: ' . $event['error']);
+    bpAbortCallback($event['status'], $event['error']);
+}
+if (isset($event['ignored'])) {
+    // Non-invoice events (payouts, payment requests, ...) are acknowledged so
+    // BTCPay does not keep redelivering them.
+    bpCompleteCallback('event_ignored', array('event_type' => $event['type']));
+}
+
+$eventContext = array(
+    'event_type' => $event['type'],
+    'delivery_id' => $event['delivery_id'],
+    'is_redelivery' => $event['is_redelivery'],
 );
 
-if (!is_array($response) || isset($response['error']) ||
-    !isset($response['data']) || !is_array($response['data'])) {
-    $responseError = is_array($response) && isset($response['error'])
-        ? $response['error']
+// The signed delivery only tells us which invoice changed. Re-fetch the
+// authoritative record so out-of-order or replayed deliveries cannot move the
+// invoice backwards.
+$invoiceData = bpGetInvoice($GATEWAY['btcpayUrl'], $GATEWAY['apiKey'], $storeId, $event['invoice_id']);
+
+if (!is_array($invoiceData) || isset($invoiceData['error'])) {
+    $responseError = is_array($invoiceData) && isset($invoiceData['error'])
+        ? $invoiceData['error']
         : 'Malformed BTCPay API response.';
-    $errorKind = is_array($response) && isset($response['error_kind'])
-        ? $response['error_kind']
+    $errorKind = is_array($invoiceData) && isset($invoiceData['error_kind'])
+        ? $invoiceData['error_kind']
         : 'upstream';
-    $callbackId = isset($request['payload']['id']) && is_scalar($request['payload']['id'])
-        ? (string) $request['payload']['id']
-        : '[invalid]';
     logTransaction(
         $GATEWAY['name'],
-        array('btcpayInvoiceId' => $callbackId),
-        'Callback verification failed: ' . $responseError
+        array('btcpayInvoiceId' => $event['invoice_id']) + $eventContext,
+        'Webhook verification failed: ' . $responseError
     );
     bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Invalid response received: ' . $responseError);
-    bpAbortCallback($errorKind === 'request' ? 400 : 502, 'Unable to verify callback.');
-} else {
-    $invoiceData = $response['data'];
-    if (!isset($invoiceData['id']) || !is_scalar($invoiceData['id'])) {
-        logTransaction($GATEWAY['name'], $response, 'Missing BTCPay invoice ID');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Authenticated BTCPay response did not contain an invoice ID.');
-        bpAbortCallback(502, 'BTCPay Server returned an invalid response.');
-    }
-
-    $transid = (string) $invoiceData['id'];
-
-    try {
-        $contract = bpFindInvoiceContract($transid);
-    } catch (Throwable $exception) {
-        logTransaction($GATEWAY['name'], $response, 'Invoice contract storage error');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to load invoice contract for ' . $transid . ': ' . $exception->getMessage());
-        bpAbortCallback(500, 'Unable to validate invoice mapping.');
-    }
-
-    if (!$contract) {
-        logTransaction($GATEWAY['name'], $response, 'Unknown or legacy BTCPay invoice');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Refusing callback for unmapped BTCPay invoice ' . $transid . '.');
-        bpAbortCallback(409, 'Unknown BTCPay invoice.');
-    }
-
-    $contractError = bpValidateBtcpayInvoiceContract($invoiceData, $contract);
-    if ($contractError !== null) {
-        logTransaction($GATEWAY['name'], $response, 'BTCPay invoice contract mismatch');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Refusing BTCPay invoice ' . $transid . ': ' . $contractError);
-        bpAbortCallback(409, 'Invoice validation failed.');
-    }
-
-    $whmcsid = (int) $contract->whmcs_invoice_id;
-    if ($whmcsid <= 0) {
-        logTransaction($GATEWAY['name'], $response, 'Invalid mapped WHMCS invoice ID');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Stored contract contains an invalid WHMCS invoice ID.');
-        bpAbortCallback(500, 'Unable to validate invoice mapping.');
-    }
-
-    $status = strtolower(trim($invoiceData['status']));
-    bpWriteCallbackTrace($GATEWAY, $callbackTraceId, 'invoice_verified', array(
-        'btcpay_invoice_id' => $transid,
-        'whmcs_invoice_id' => $whmcsid,
-        'status' => $status,
-    ));
-    $recordStatus = function ($newStatus) use ($GATEWAY, $invoiceData, $response, $transid) {
-        try {
-            return bpWithLockedInvoiceContract($transid, function ($lockedContract) use (
-                $invoiceData,
-                $newStatus
-            ) {
-                $contractError = bpValidateBtcpayInvoiceContract($invoiceData, $lockedContract);
-                if ($contractError !== null) {
-                    throw new RuntimeException($contractError);
-                }
-
-                $manualReview = bpInvoiceStatusRequiresManualReview(
-                    $lockedContract->processed_at,
-                    $newStatus
-                ) && strtolower((string) $lockedContract->status) !== strtolower($newStatus);
-                bpUpdateInvoiceContractStatus($lockedContract->id, $newStatus);
-
-                return array(
-                    'processed' => $lockedContract->processed_at !== null,
-                    'manual_review' => $manualReview,
-                );
-            });
-        } catch (Throwable $exception) {
-            logTransaction($GATEWAY['name'], $response, 'Invoice contract status update failed');
-            bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to update contract status for ' . $transid . ': ' . $exception->getMessage());
-            bpAbortCallback(500, 'Unable to update invoice status.');
-        }
-    };
-
-    // Handle terminal non-payment states from the authenticated BTCPay record
-    // before validating the mutable WHMCS invoice. This guarantees that a
-    // post-credit invalidation is escalated even if an administrator later
-    // edited or deleted the WHMCS invoice.
-    if ($status === 'expired' || $status === 'invalid') {
-        $statusResult = $recordStatus($status);
-        if ($statusResult['manual_review']) {
-            $reviewMessage = 'MANUAL REVIEW REQUIRED: BTCPay transaction ' . $transid .
-                ' for WHMCS invoice #' . $whmcsid .
-                ' was reported as ' . $status .
-                ' after the invoice had already been credited. No automatic reversal was made.';
-            logTransaction($GATEWAY['name'], $response, $reviewMessage);
-            bpLog('[SECURITY] ' . $reviewMessage);
-            if (function_exists('logActivity')) {
-                logActivity($reviewMessage);
-            }
-        } else {
-            logTransaction(
-                $GATEWAY['name'],
-                $response,
-                $status === 'expired'
-                    ? 'The BTCPay invoice expired without being credited.'
-                    : 'The transaction is invalid. Do not process this order!'
-            );
-        }
-
-        bpCompleteCallback('terminal_status_recorded', array(
-            'btcpay_invoice_id' => $transid,
-            'whmcs_invoice_id' => $whmcsid,
-            'status' => $status,
-            'manual_review' => $statusResult['manual_review'],
-        ));
-    }
-
-    try {
-        $invoice = bpGetWhmcsInvoiceForContract($whmcsid);
-    } catch (Throwable $exception) {
-        logTransaction($GATEWAY['name'], $response, 'WHMCS invoice lookup failed');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to load WHMCS invoice for BTCPay invoice ' . $transid . ': ' . $exception->getMessage());
-        bpAbortCallback(500, 'Unable to validate WHMCS invoice.');
-    }
-    if (!$invoice) {
-        logTransaction($GATEWAY['name'], $response, 'Mapped WHMCS invoice no longer exists');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Mapped WHMCS invoice no longer exists for BTCPay invoice ' . $transid . '.');
-        bpAbortCallback(409, 'WHMCS invoice validation failed.');
-    }
-    $contractError = bpValidateWhmcsInvoiceContract($invoice, $contract);
-    if ($contractError !== null) {
-        logTransaction($GATEWAY['name'], $response, 'WHMCS invoice contract mismatch');
-        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Refusing payment for BTCPay invoice ' . $transid . ': ' . $contractError);
-        bpAbortCallback(409, 'WHMCS invoice validation failed.');
-    }
-
-    $applyPayment = function ($logMessage) use (
-        $GATEWAY,
-        $gatewaymodule,
-        $invoiceData,
-        $response,
-        $status,
-        $transid
-    ) {
-        try {
-            $result = bpWithLockedInvoiceContract($transid, function ($lockedContract) use (
-                $gatewaymodule,
-                $invoiceData,
-                $status,
-                $transid
-            ) {
-                if ($lockedContract->processed_at !== null) {
-                    // Keep the authenticated lifecycle status current without
-                    // attempting to credit the WHMCS invoice a second time.
-                    bpUpdateInvoiceContractStatus($lockedContract->id, $status);
-                    return 'duplicate';
-                }
-
-                $contractError = bpValidateBtcpayInvoiceContract($invoiceData, $lockedContract);
-                if ($contractError !== null) {
-                    throw new RuntimeException($contractError);
-                }
-
-                $lockedInvoice = bpGetWhmcsInvoiceForContract(
-                    $lockedContract->whmcs_invoice_id,
-                    true
-                );
-                if (!$lockedInvoice) {
-                    throw new RuntimeException('Mapped WHMCS invoice no longer exists.');
-                }
-
-                $contractError = bpValidateWhmcsInvoiceContract($lockedInvoice, $lockedContract);
-                if ($contractError !== null) {
-                    throw new RuntimeException($contractError);
-                }
-
-                // Preserve WHMCS's transaction-level duplicate protection in addition
-                // to serializing this contract row.
-                checkCbTransID($transid);
-
-                addInvoicePayment(
-                    (int) $lockedContract->whmcs_invoice_id,
-                    $transid,
-                    bpNormalizeDecimal($lockedContract->whmcs_amount),
-                    0.00,
-                    $gatewaymodule
-                );
-
-                bpUpdateInvoiceContractStatus($lockedContract->id, $status, true);
-
-                return 'processed';
-            });
-        } catch (Throwable $exception) {
-            logTransaction($GATEWAY['name'], $response, 'Secure invoice processing failed');
-            bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to process BTCPay invoice ' . $transid . ': ' . $exception->getMessage());
-            bpAbortCallback(500, 'Invoice payment processing failed.');
-        }
-
-        if ($result === 'duplicate') {
-            logTransaction($GATEWAY['name'], $response, 'Duplicate callback ignored.');
-            return 'duplicate';
-        }
-
-        logTransaction($GATEWAY['name'], $response, $logMessage);
-
-        return 'processed';
-    };
-
-    $outcome = 'status_recorded';
-    switch ($status) {
-        case 'paid':
-            // New payment, not confirmed
-            $recordStatus($status);
-            logTransaction($GATEWAY['name'], $response, 'The payment has been received, but the transaction has not been confirmed on the bitcoin network. This will be updated when the transaction has been confirmed.');
-            $outcome = 'awaiting_confirmation';
-            break;
-        case 'confirmed':
-            // Apply Payment to Invoice
-            $outcome = $applyPayment('The payment has been received, and the transaction has been confirmed on the bitcoin network. This will be updated when the transaction has been completed.') === 'duplicate'
-                ? 'duplicate_callback'
-                : 'payment_applied';
-            break;
-        case 'complete':
-            // Apply Payment to Invoice
-            $outcome = $applyPayment('The transaction is now complete.') === 'duplicate'
-                ? 'duplicate_callback'
-                : 'payment_applied';
-            break;
-        default:
-            $recordStatus($status);
-            logTransaction($GATEWAY['name'], $response, 'Unknown response received.');
-    }
-
-    bpCompleteCallback($outcome, array(
-        'btcpay_invoice_id' => $transid,
-        'whmcs_invoice_id' => $whmcsid,
-        'status' => $status,
-    ));
+    bpAbortCallback($errorKind === 'request' ? 400 : 502, 'Unable to verify webhook.');
 }
+
+$response = array('event' => $eventContext, 'invoice' => $invoiceData);
+$transid = (string) $invoiceData['id'];
+
+try {
+    $contract = bpFindInvoiceContract($transid);
+} catch (Throwable $exception) {
+    logTransaction($GATEWAY['name'], $response, 'Invoice contract storage error');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to load invoice contract for ' . $transid . ': ' . $exception->getMessage());
+    bpAbortCallback(500, 'Unable to validate invoice mapping.');
+}
+
+if (!$contract) {
+    // Invoices created outside this module (or before it was installed) are
+    // acknowledged and left alone; failing them would only trigger redelivery.
+    logTransaction($GATEWAY['name'], $response, 'Ignored webhook for a BTCPay invoice that was not created by WHMCS');
+    bpLog('[WARNING] In modules/gateways/callback/btcpay.php: Ignoring webhook for unmapped BTCPay invoice ' . $transid . '.');
+    bpCompleteCallback('unmapped_invoice_ignored', array('btcpay_invoice_id' => $transid) + $eventContext);
+}
+
+$contractError = bpValidateBtcpayInvoiceContract($invoiceData, $contract);
+if ($contractError !== null) {
+    logTransaction($GATEWAY['name'], $response, 'BTCPay invoice contract mismatch');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Refusing BTCPay invoice ' . $transid . ': ' . $contractError);
+    bpAbortCallback(409, 'Invoice validation failed.');
+}
+
+$whmcsid = (int) $contract->whmcs_invoice_id;
+if ($whmcsid <= 0) {
+    logTransaction($GATEWAY['name'], $response, 'Invalid mapped WHMCS invoice ID');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Stored contract contains an invalid WHMCS invoice ID.');
+    bpAbortCallback(500, 'Unable to validate invoice mapping.');
+}
+
+// Greenfield statuses: new, processing, expired, invalid, settled.
+$status = bpInvoiceStatus($invoiceData);
+$additionalStatus = bpInvoiceAdditionalStatus($invoiceData);
+bpWriteCallbackTrace($GATEWAY, $callbackTraceId, 'invoice_verified', array(
+    'btcpay_invoice_id' => $transid,
+    'whmcs_invoice_id' => $whmcsid,
+    'status' => $status,
+    'additional_status' => $additionalStatus,
+) + $eventContext);
+
+$recordStatus = function ($newStatus) use ($GATEWAY, $invoiceData, $response, $transid) {
+    try {
+        return bpWithLockedInvoiceContract($transid, function ($lockedContract) use (
+            $invoiceData,
+            $newStatus
+        ) {
+            $contractError = bpValidateBtcpayInvoiceContract($invoiceData, $lockedContract);
+            if ($contractError !== null) {
+                throw new RuntimeException($contractError);
+            }
+
+            $manualReview = bpInvoiceStatusRequiresManualReview(
+                $lockedContract->processed_at,
+                $newStatus
+            ) && strtolower((string) $lockedContract->status) !== strtolower($newStatus);
+            bpUpdateInvoiceContractStatus($lockedContract->id, $newStatus);
+
+            return array(
+                'processed' => $lockedContract->processed_at !== null,
+                'manual_review' => $manualReview,
+            );
+        });
+    } catch (Throwable $exception) {
+        logTransaction($GATEWAY['name'], $response, 'Invoice contract status update failed');
+        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to update contract status for ' . $transid . ': ' . $exception->getMessage());
+        bpAbortCallback(500, 'Unable to update invoice status.');
+    }
+};
+
+// Handle terminal non-payment states from the authenticated BTCPay record
+// before validating the mutable WHMCS invoice. This guarantees that a
+// post-credit invalidation is escalated even if an administrator later
+// edited or deleted the WHMCS invoice.
+if ($status === 'expired' || $status === 'invalid') {
+    $statusResult = $recordStatus($status);
+    if ($statusResult['manual_review']) {
+        $reviewMessage = 'MANUAL REVIEW REQUIRED: BTCPay transaction ' . $transid .
+            ' for WHMCS invoice #' . $whmcsid .
+            ' was reported as ' . $status . ' (' . $additionalStatus . ')' .
+            ' after the invoice had already been credited. No automatic reversal was made.';
+        logTransaction($GATEWAY['name'], $response, $reviewMessage);
+        bpLog('[SECURITY] ' . $reviewMessage);
+        if (function_exists('logActivity')) {
+            logActivity($reviewMessage);
+        }
+    } else {
+        if ($status === 'expired') {
+            $message = $additionalStatus === 'paidpartial'
+                ? 'The BTCPay invoice expired after a PARTIAL payment was received. The customer may need a refund or a new invoice; review it in BTCPay.'
+                : ($additionalStatus === 'paidlate'
+                    ? 'The BTCPay invoice expired and a payment arrived after expiry. Review it in BTCPay and mark it settled there if appropriate.'
+                    : 'The BTCPay invoice expired without being credited.');
+        } else {
+            $message = $additionalStatus === 'marked'
+                ? 'The BTCPay invoice was manually marked invalid in BTCPay. Do not process this order!'
+                : 'The transaction is invalid (payment did not confirm in time). Do not process this order!';
+        }
+        logTransaction($GATEWAY['name'], $response, $message);
+        if ($additionalStatus === 'paidpartial' || $additionalStatus === 'paidlate') {
+            bpLog('[WARNING] BTCPay invoice ' . $transid . ' for WHMCS invoice #' . $whmcsid . ' expired with additional status ' . $additionalStatus . '.');
+            if (function_exists('logActivity')) {
+                logActivity('BTCPay invoice ' . $transid . ' for WHMCS invoice #' . $whmcsid . ' expired with additional status ' . $additionalStatus . '. Review it in BTCPay.');
+            }
+        }
+    }
+
+    bpCompleteCallback('terminal_status_recorded', array(
+        'btcpay_invoice_id' => $transid,
+        'whmcs_invoice_id' => $whmcsid,
+        'status' => $status,
+        'additional_status' => $additionalStatus,
+        'manual_review' => $statusResult['manual_review'],
+    ) + $eventContext);
+}
+
+try {
+    $invoice = bpGetWhmcsInvoiceForContract($whmcsid);
+} catch (Throwable $exception) {
+    logTransaction($GATEWAY['name'], $response, 'WHMCS invoice lookup failed');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to load WHMCS invoice for BTCPay invoice ' . $transid . ': ' . $exception->getMessage());
+    bpAbortCallback(500, 'Unable to validate WHMCS invoice.');
+}
+if (!$invoice) {
+    logTransaction($GATEWAY['name'], $response, 'Mapped WHMCS invoice no longer exists');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Mapped WHMCS invoice no longer exists for BTCPay invoice ' . $transid . '.');
+    bpAbortCallback(409, 'WHMCS invoice validation failed.');
+}
+$contractError = bpValidateWhmcsInvoiceContract($invoice, $contract);
+if ($contractError !== null) {
+    logTransaction($GATEWAY['name'], $response, 'WHMCS invoice contract mismatch');
+    bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Refusing payment for BTCPay invoice ' . $transid . ': ' . $contractError);
+    bpAbortCallback(409, 'WHMCS invoice validation failed.');
+}
+
+$applyPayment = function ($logMessage) use (
+    $GATEWAY,
+    $gatewaymodule,
+    $invoiceData,
+    $response,
+    $status,
+    $transid
+) {
+    try {
+        $result = bpWithLockedInvoiceContract($transid, function ($lockedContract) use (
+            $gatewaymodule,
+            $invoiceData,
+            $status,
+            $transid
+        ) {
+            if ($lockedContract->processed_at !== null) {
+                // Keep the authenticated lifecycle status current without
+                // attempting to credit the WHMCS invoice a second time.
+                bpUpdateInvoiceContractStatus($lockedContract->id, $status);
+                return 'duplicate';
+            }
+
+            $contractError = bpValidateBtcpayInvoiceContract($invoiceData, $lockedContract);
+            if ($contractError !== null) {
+                throw new RuntimeException($contractError);
+            }
+
+            $lockedInvoice = bpGetWhmcsInvoiceForContract(
+                $lockedContract->whmcs_invoice_id,
+                true
+            );
+            if (!$lockedInvoice) {
+                throw new RuntimeException('Mapped WHMCS invoice no longer exists.');
+            }
+
+            $contractError = bpValidateWhmcsInvoiceContract($lockedInvoice, $lockedContract);
+            if ($contractError !== null) {
+                throw new RuntimeException($contractError);
+            }
+
+            // Preserve WHMCS's transaction-level duplicate protection in addition
+            // to serializing this contract row.
+            checkCbTransID($transid);
+
+            addInvoicePayment(
+                (int) $lockedContract->whmcs_invoice_id,
+                $transid,
+                bpNormalizeDecimal($lockedContract->whmcs_amount),
+                0.00,
+                $gatewaymodule
+            );
+
+            bpUpdateInvoiceContractStatus($lockedContract->id, $status, true);
+
+            return 'processed';
+        });
+    } catch (Throwable $exception) {
+        logTransaction($GATEWAY['name'], $response, 'Secure invoice processing failed');
+        bpLog('[ERROR] In modules/gateways/callback/btcpay.php: Unable to process BTCPay invoice ' . $transid . ': ' . $exception->getMessage());
+        bpAbortCallback(500, 'Invoice payment processing failed.');
+    }
+
+    if ($result === 'duplicate') {
+        logTransaction($GATEWAY['name'], $response, 'Duplicate webhook ignored.');
+        return 'duplicate';
+    }
+
+    logTransaction($GATEWAY['name'], $response, $logMessage);
+
+    return 'processed';
+};
+
+$outcome = 'status_recorded';
+switch ($status) {
+    case 'new':
+        $recordStatus($status);
+        logTransaction($GATEWAY['name'], $response, 'The BTCPay invoice is awaiting payment.');
+        $outcome = 'awaiting_payment';
+        break;
+    case 'processing':
+        // Payment detected, not yet settled under the store's speed policy.
+        $recordStatus($status);
+        logTransaction($GATEWAY['name'], $response, 'The payment has been received, but the transaction has not yet been confirmed on the network. This will be updated when the payment settles.'
+            . ($additionalStatus === 'paidover' ? ' The customer overpaid; review the invoice in BTCPay.' : ''));
+        $outcome = 'awaiting_confirmation';
+        break;
+    case 'settled':
+        // Apply Payment to Invoice
+        $settledMessage = 'The payment has settled on the network.';
+        if ($additionalStatus === 'marked') {
+            $settledMessage = 'The invoice was manually marked as settled in BTCPay.';
+        } elseif ($additionalStatus === 'paidover') {
+            $settledMessage = 'The payment has settled. The customer overpaid; review the invoice in BTCPay.';
+        } elseif ($additionalStatus === 'paidlate') {
+            $settledMessage = 'The payment has settled. It arrived after the invoice expired and was accepted by BTCPay.';
+        }
+        $outcome = $applyPayment($settledMessage) === 'duplicate'
+            ? 'duplicate_callback'
+            : 'payment_applied';
+        break;
+    default:
+        $recordStatus($status);
+        logTransaction($GATEWAY['name'], $response, 'Unknown invoice status received.');
+}
+
+bpCompleteCallback($outcome, array(
+    'btcpay_invoice_id' => $transid,
+    'whmcs_invoice_id' => $whmcsid,
+    'status' => $status,
+    'additional_status' => $additionalStatus,
+) + $eventContext);

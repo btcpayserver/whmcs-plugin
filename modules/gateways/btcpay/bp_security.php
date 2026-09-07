@@ -241,7 +241,7 @@ function bpRequestUsesOnionHost(array $server)
 }
 
 /**
- * Parse and bound the untrusted legacy callback request before accessing it.
+ * Parse and bound the untrusted webhook request before accessing it.
  *
  * @param array  $server
  * @param mixed  $body

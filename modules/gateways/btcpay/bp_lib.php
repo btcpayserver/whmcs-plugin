@@ -23,9 +23,21 @@
  * THE SOFTWARE.
  */
 
-require_once __DIR__ . '/bp_options.php';
+/**
+ * BTCPay Server Greenfield API client for the WHMCS gateway module.
+ *
+ * API reference: https://docs.btcpayserver.org/API/Greenfield/v1/
+ *
+ * Every function here returns either a decoded response array or an array
+ * containing an 'error' key (a public, non-sensitive message) and an
+ * 'error_kind' key of 'request', 'local', or 'upstream'.
+ */
+
 require_once __DIR__ . '/version.php';
 require_once __DIR__ . '/bp_security.php';
+
+const BP_GREENFIELD_TIMEOUT_SECONDS = 15;
+const BP_GREENFIELD_MAX_RESPONSE_BYTES = 1048576;
 
 /**
  * @param string $contents
@@ -36,217 +48,194 @@ function bpLog($contents)
 }
 
 /**
- * @param  string      $url
- * @param  string      $apiKey
- * @param  bool|string $post
+ * @param string $baseUri
+ * @param string $path
+ * @return string
+ */
+function bpGreenfieldUrl($baseUri, $path)
+{
+    return rtrim($baseUri, '/') . '/' . ltrim($path, '/');
+}
+
+/**
+ * Extract a short, sanitized summary of a Greenfield validation error body
+ * (an array of {path, message} objects) for the error log. Nothing from the
+ * body is ever returned to the browser.
+ *
+ * @param string $responseString
+ * @return string
+ */
+function bpSummarizeGreenfieldError($responseString)
+{
+    if (!is_string($responseString) || $responseString === '') {
+        return '';
+    }
+
+    try {
+        $decoded = json_decode($responseString, true, 8, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        return '';
+    }
+
+    $problems = array();
+    if (is_array($decoded) && isset($decoded['message']) && is_string($decoded['message'])) {
+        $problems[] = $decoded['message'];
+    } elseif (is_array($decoded)) {
+        foreach ($decoded as $item) {
+            if (!is_array($item) || !isset($item['message']) || !is_string($item['message'])) {
+                continue;
+            }
+            $path = isset($item['path']) && is_string($item['path']) ? $item['path'] . ': ' : '';
+            $problems[] = $path . $item['message'];
+            if (count($problems) >= 5) {
+                break;
+            }
+        }
+    }
+
+    if (!$problems) {
+        return '';
+    }
+
+    $summary = preg_replace('/[\x00-\x1F\x7F]/', ' ', implode('; ', $problems));
+
+    return ' Details: ' . substr((string) $summary, 0, 500);
+}
+
+/**
+ * Perform one authenticated Greenfield API request.
+ *
+ * @param string      $btcpayUrl Base URL of the BTCPay Server instance.
+ * @param string      $apiKey    Greenfield API key.
+ * @param string      $method    GET or POST.
+ * @param string      $path      Path under the base URL, e.g. /api/v1/stores/x/invoices.
+ * @param array|null  $body      JSON-encodable request body for POST requests.
  * @return array
  */
-function bpCurl($url, $apiKey, $post = false)
+function bpGreenfieldRequest($btcpayUrl, $apiKey, $method, $path, $body = null)
 {
-    global $bpOptions;
     global $version;
 
+    if (!is_string($apiKey) || trim($apiKey) === '') {
+        return array('error' => 'The BTCPay Server API key is not configured.', 'error_kind' => 'local');
+    }
+    $apiKey = trim($apiKey);
+    if (preg_match('/[\x00-\x20\x7F]/', $apiKey)) {
+        return array('error' => 'The BTCPay Server API key is invalid.', 'error_kind' => 'local');
+    }
+
+    try {
+        $btcpayUrl = bpNormalizeConfiguredBaseUrl($btcpayUrl);
+    } catch (Throwable $exception) {
+        return array('error' => 'The BTCPay Server URL is invalid.', 'error_kind' => 'local');
+    }
+
+    $method = strtoupper((string) $method);
+    if ($method !== 'GET' && $method !== 'POST') {
+        return array('error' => 'Unsupported BTCPay request method.', 'error_kind' => 'local');
+    }
+
+    $url = bpGreenfieldUrl($btcpayUrl, $path);
     $curl = curl_init($url);
     if ($curl === false) {
         return array('error' => 'Unable to initialize the BTCPay request.', 'error_kind' => 'upstream');
     }
 
-    $length = 0;
-    if ($post !== false) {
-        curl_setopt($curl, CURLOPT_POST, 1);
-        curl_setopt($curl, CURLOPT_POSTFIELDS, $post);
-        $length = strlen($post);
-    }
-
-    $uname  = base64_encode($apiKey);
-
     $header = array(
-        'Content-Type: application/json',
-        'Content-Length: ' . $length,
-        'Authorization: Basic ' . $uname,
-        'X-BitPay-Plugin-Info: whmcs '. $version,
+        'Accept: application/json',
+        'Authorization: token ' . $apiKey,
+        'User-Agent: BTCPay-WHMCS/' . $version,
     );
 
+    if ($method === 'POST') {
+        try {
+            $encoded = json_encode(
+                $body === null ? new stdClass() : $body,
+                JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_SLASHES
+            );
+        } catch (Throwable $exception) {
+            curl_close($curl);
+            return array('error' => 'Unable to encode the BTCPay request.', 'error_kind' => 'local');
+        }
+        curl_setopt($curl, CURLOPT_POST, 1);
+        curl_setopt($curl, CURLOPT_POSTFIELDS, $encoded);
+        $header[] = 'Content-Type: application/json';
+        $header[] = 'Content-Length: ' . strlen($encoded);
+    } else {
+        curl_setopt($curl, CURLOPT_HTTPGET, 1);
+    }
+
     curl_setopt($curl, CURLOPT_HTTPHEADER, $header);
-    curl_setopt($curl, CURLOPT_TIMEOUT, 10);
-    curl_setopt($curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+    curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($curl, CURLOPT_TIMEOUT, BP_GREENFIELD_TIMEOUT_SECONDS);
     curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 1); // verify certificate
     curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 2); // check existence of CN and verify that it matches hostname
     curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+    curl_setopt($curl, CURLOPT_FOLLOWLOCATION, 0); // never follow redirects with the API key attached
     curl_setopt($curl, CURLOPT_FORBID_REUSE, 1);
     curl_setopt($curl, CURLOPT_FRESH_CONNECT, 1);
+    curl_setopt($curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
 
     $responseString = curl_exec($curl);
-    $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+    $httpCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
     $curlError = curl_error($curl);
     $curlErrno = curl_errno($curl);
-    
+    curl_close($curl);
+
+    $logPrefix = '[ERROR] In modules/gateways/btcpay/bp_lib.php::bpGreenfieldRequest(): ' . $method . ' ' . $path . ': ';
+
     if ($responseString === false) {
-        bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): cURL request failed with errno ' . $curlErrno . ': ' . $curlError);
-        $response = array('error' => 'The BTCPay Server request failed.', 'error_kind' => 'upstream');
-    } elseif ($httpCode < 200 || $httpCode >= 300) {
+        bpLog($logPrefix . 'cURL request failed with errno ' . $curlErrno . ': ' . $curlError);
+        return array('error' => 'The BTCPay Server request failed.', 'error_kind' => 'upstream');
+    }
+    if (strlen($responseString) > BP_GREENFIELD_MAX_RESPONSE_BYTES) {
+        bpLog($logPrefix . 'BTCPay Server response exceeded ' . BP_GREENFIELD_MAX_RESPONSE_BYTES . ' bytes.');
+        return array('error' => 'BTCPay Server returned an oversized response.', 'error_kind' => 'upstream');
+    }
+
+    if ($httpCode < 200 || $httpCode >= 300) {
+        $hint = '';
+        if ($httpCode === 401) {
+            $hint = ' The API key was rejected. Check the Greenfield API key in the gateway settings.';
+        } elseif ($httpCode === 403) {
+            $hint = ' The API key lacks permission for this store or operation.';
+        } elseif ($httpCode === 404) {
+            $hint = ' The store or invoice was not found. Check the Store ID in the gateway settings.';
+        } elseif ($httpCode === 400 || $httpCode === 422) {
+            $hint = bpSummarizeGreenfieldError($responseString);
+        }
         bpLog(
-            '[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): BTCPay Server returned HTTP ' .
-            $httpCode . ' with body length ' . strlen($responseString) . ' and SHA-256 ' .
-            hash('sha256', $responseString) . '.'
+            $logPrefix . 'BTCPay Server returned HTTP ' . $httpCode . ' with body length ' .
+            strlen($responseString) . ' and SHA-256 ' . hash('sha256', $responseString) . '.' . $hint
         );
-        $response = array(
+
+        return array(
             'error' => 'BTCPay Server returned an unsuccessful HTTP status.',
             'error_kind' => 'upstream',
             'http_status' => $httpCode,
         );
-    } else {
-        try {
-            $response = json_decode($responseString, true, 64, JSON_THROW_ON_ERROR);
-        } catch (Throwable $exception) {
-            bpLog(
-                '[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCurl(): Invalid JSON response for HTTP ' .
-                $httpCode . ' with body length ' . strlen($responseString) . ' and SHA-256 ' .
-                hash('sha256', $responseString) . '.'
-            );
-            $response = array('error' => 'BTCPay Server returned an invalid response.', 'error_kind' => 'upstream');
-        }
-
-        if (!is_array($response)) {
-            $response = array('error' => 'BTCPay Server returned an invalid response.', 'error_kind' => 'upstream');
-        }
     }
 
-    curl_close($curl);
-
-    return $response;
-}
-
-function getFullUri($baseUri, $path)
-{
-    $uriNormalized = rtrim($baseUri, '/');
-    $pathNormalized = ltrim($path, '/');
-    return sprintf(
-        '%s/%s',
-        $uriNormalized,
-        $pathNormalized
-    );
-}
-
-/**
- * $orderId: Used to display an orderID to the buyer. In the account summary view, this value is used to
- * identify a ledger entry if present.
- *
- * $price: by default, $price is expressed in the currency you set in bp_options.php.  The currency can be
- * changed in $options.
- *
- * $posData: this field is included in status updates or requests to get an invoice.  It is intended to be used by
- * the merchant to uniquely identify an order associated with an invoice in their system.  Aside from that, BitPay does
- * not use the data in this field.  The data in this field can be anything that is meaningful to the merchant.
- *
- * $options keys can include any of:
- * ('itemDesc', 'itemCode', 'notificationEmail', 'notificationURL', 'redirectURL', 'apiKey'
- *		'currency', 'physical', 'fullNotifications', 'transactionSpeed', 'buyerName',
- *		'buyerAddress1', 'buyerAddress2', 'buyerCity', 'buyerState', 'buyerZip', 'buyerEmail', 'buyerPhone')
- * If a given option is not provided here, the value of that option will default to what is found in bp_options.php
- * (see api documentation for information on these options).
- *
- * @param  string $orderId
- * @param  string $price
- * @param  string $posData
- * @param  array  $options
- * @return array
- */
-function bpCreateInvoice($orderId, $price, $posData, $options = array())
-{
-    global $bpOptions;
-
-    $options = array_merge($bpOptions, $options);    // $options override any options found in bp_options.php
-
-    $encodedPosData = array('posData' => (string) $posData);
-
-    // Retained only for callers that explicitly enable the deprecated legacy
-    // POS hash. This plugin's callback does not use it for authentication.
-    if ($bpOptions['verifyPos']) {
-        $encodedPosData['hash'] = crypt((string) $posData, $options['apiKey']);
+    if ($httpCode === 204 || $responseString === '') {
+        return array();
     }
 
     try {
-        $options['posData'] = json_encode(
-            $encodedPosData,
-            JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE
+        $response = json_decode($responseString, true, 64, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        bpLog(
+            $logPrefix . 'Invalid JSON response for HTTP ' . $httpCode . ' with body length ' .
+            strlen($responseString) . ' and SHA-256 ' . hash('sha256', $responseString) . '.'
         );
-    } catch (Throwable $exception) {
-        return array('error' => 'Unable to encode BTCPay invoice metadata.', 'error_kind' => 'local');
-    }
-    $options['orderId']  = (string) $orderId;
-    $options['price']    = $price;
-
-    $btcpayUrl = getFullUri($options['btcpayUrl'],"/invoices");
-
-    $postOptions = array('orderId', 'itemDesc', 'itemCode', 'notificationEmail', 'notificationURL', 'redirectURL',
-        'posData', 'price', 'currency', 'physical', 'fullNotifications', 'transactionSpeed', 'buyerName',
-        'buyerAddress1', 'buyerAddress2', 'buyerCity', 'buyerState', 'buyerZip', 'buyerEmail', 'buyerPhone');
-
-    $post = array();
-    foreach ($postOptions as $o) {
-        if (array_key_exists($o, $options)) {
-            $post[$o] = $options[$o];
-        }
+        return array('error' => 'BTCPay Server returned an invalid response.', 'error_kind' => 'upstream');
     }
 
-    try {
-        $post = json_encode($post, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
-    } catch (Throwable $exception) {
-        return array('error' => 'Unable to encode the BTCPay invoice request.', 'error_kind' => 'local');
+    if (!is_array($response)) {
+        return array('error' => 'BTCPay Server returned an invalid response.', 'error_kind' => 'upstream');
     }
-
-    $response = bpCurl($btcpayUrl, $options['apiKey'], $post);
-
-    return $response;
-}
-
-/**
- * Call from your notification handler to convert $_POST data to an object containing invoice data
- *
- * @param  string     $apiKey
- * @param  null       $btcpayUrl
- * @param  array|null $notification
- * @return array
- */
-function bpVerifyNotification($apiKey = false, $btcpayUrl = null, $notification = null)
-{
-    global $bpOptions;
-
-    if (!$apiKey) {
-        $apiKey = $bpOptions['apiKey'];
-    }
-
-    if ($notification === null) {
-        $post = file_get_contents('php://input', false, null, 0, BP_MAX_CALLBACK_BODY_BYTES + 1);
-        if (!is_string($post) || $post === '' || strlen($post) > BP_MAX_CALLBACK_BODY_BYTES) {
-            return array('error' => 'Invalid callback request body.', 'error_kind' => 'request');
-        }
-
-        try {
-            $notification = json_decode($post, true, 32, JSON_THROW_ON_ERROR);
-        } catch (Throwable $exception) {
-            return array('error' => 'Invalid callback JSON.', 'error_kind' => 'request');
-        }
-    }
-
-    if (!is_array($notification)) {
-        return array('error' => 'Invalid callback payload.', 'error_kind' => 'request');
-    }
-
-    // Treat the unauthenticated legacy IPN only as a wake-up signal. Its
-    // invoice ID selects the record to re-fetch through the authenticated API;
-    // status, amount, currency, order ID, and POS metadata are never trusted
-    // from the posted payload.
-    $validated = bpValidateLegacyNotificationPayload($notification);
-    if (isset($validated['error'])) {
-        return $validated;
-    }
-
-    $response = bpGetInvoice($validated['id'], $apiKey, $btcpayUrl);
-    if (isset($response['error'])) {
-        return $response;
-    }
+    // Greenfield never returns an 'error' member on success; reserve the key
+    // for this library's own error signalling.
+    unset($response['error'], $response['error_kind']);
 
     return $response;
 }
@@ -262,71 +251,116 @@ function bpIsValidInvoiceIdentifier($invoiceId)
 }
 
 /**
- * @param mixed $encoded
- * @param bool  $requireHash
- * @return array
+ * Store IDs share the invoice ID alphabet.
+ *
+ * @param mixed $storeId
+ * @return bool
  */
-function bpDecodePosData($encoded, $requireHash)
+function bpIsValidStoreIdentifier($storeId)
 {
-    if (!is_string($encoded) || $encoded === '' || strlen($encoded) > 4096) {
-        return array('error' => 'Invalid posData.', 'error_kind' => 'request');
-    }
-
-    try {
-        $posData = json_decode($encoded, true, 16, JSON_THROW_ON_ERROR);
-    } catch (Throwable $exception) {
-        return array('error' => 'Invalid posData JSON.', 'error_kind' => 'request');
-    }
-
-    if (!is_array($posData) || !array_key_exists('posData', $posData) ||
-        !is_scalar($posData['posData']) || is_bool($posData['posData']) ||
-        trim((string) $posData['posData']) === '') {
-        return array('error' => 'Invalid posData value.', 'error_kind' => 'request');
-    }
-    if ($requireHash && (!array_key_exists('hash', $posData) || !is_string($posData['hash']) ||
-        $posData['hash'] === '' || strlen($posData['hash']) > 255)) {
-        return array('error' => 'Invalid posData hash.', 'error_kind' => 'request');
-    }
-
-    return $posData;
+    return bpIsValidInvoiceIdentifier($storeId);
 }
 
 /**
- * Extract the only field consumed from an unauthenticated legacy IPN.
- *
- * BTCPay explicitly warns that legacy notification data can be faked. The
- * callback therefore does not validate or consume the posted status, amount,
- * currency, order ID, or POS data. bpGetInvoice() validates the complete
- * authenticated response before callback processing continues.
- *
- * @param array       $notification
- * @param string|null $apiKey   Retained for backwards call compatibility.
- * @param bool|null   $verifyPos Retained for backwards call compatibility.
- * @return array
+ * @param mixed $storeId
+ * @return string
  */
-function bpValidateLegacyNotificationPayload(array $notification, $apiKey = null, $verifyPos = null)
+function bpNormalizeStoreId($storeId)
 {
-    if (!array_key_exists('id', $notification) ||
-        !bpIsValidInvoiceIdentifier($notification['id'])) {
-        return array('error' => 'Callback invoice ID is invalid.', 'error_kind' => 'request');
+    $storeId = is_string($storeId) ? trim($storeId) : '';
+    if (!bpIsValidStoreIdentifier($storeId)) {
+        throw new InvalidArgumentException('The BTCPay Store ID is missing or invalid.');
     }
 
-    return array('id' => $notification['id']);
+    return $storeId;
 }
 
 /**
- * Validate every field consumed from an authenticated legacy API response.
+ * Map the gateway's transaction speed setting to a Greenfield speedPolicy.
+ * Returns null when the store default should be used.
  *
- * @param mixed $data
+ * @param mixed $setting
  * @return string|null
  */
-function bpValidateBtcpayInvoiceResponseData($data)
+function bpMapTransactionSpeed($setting)
+{
+    $setting = is_string($setting) ? strtolower(trim($setting)) : '';
+    switch ($setting) {
+        case '':
+        case 'default':
+            return null;
+        case 'high':
+            return 'HighSpeed';
+        case 'medium':
+            return 'MediumSpeed';
+        case 'lowmedium':
+            return 'LowMediumSpeed';
+        case 'low':
+            return 'LowSpeed';
+        default:
+            throw new InvalidArgumentException('The configured transaction speed is invalid.');
+    }
+}
+
+/**
+ * @param array $invoiceData
+ * @return string|null
+ */
+function bpInvoiceOrderId(array $invoiceData)
+{
+    if (!isset($invoiceData['metadata']) || !is_array($invoiceData['metadata']) ||
+        !array_key_exists('orderId', $invoiceData['metadata'])) {
+        return null;
+    }
+    $orderId = $invoiceData['metadata']['orderId'];
+    if (!is_scalar($orderId) || is_bool($orderId)) {
+        return null;
+    }
+
+    return (string) $orderId;
+}
+
+/**
+ * Lower-cased Greenfield invoice status: new, processing, expired, invalid, settled.
+ *
+ * @param array $invoiceData
+ * @return string
+ */
+function bpInvoiceStatus(array $invoiceData)
+{
+    return isset($invoiceData['status']) && is_string($invoiceData['status'])
+        ? strtolower(trim($invoiceData['status']))
+        : '';
+}
+
+/**
+ * Lower-cased Greenfield additional status: none, paidlate, paidpartial,
+ * marked, invalid, paidover.
+ *
+ * @param array $invoiceData
+ * @return string
+ */
+function bpInvoiceAdditionalStatus(array $invoiceData)
+{
+    return isset($invoiceData['additionalStatus']) && is_string($invoiceData['additionalStatus'])
+        ? strtolower(trim($invoiceData['additionalStatus']))
+        : 'none';
+}
+
+/**
+ * Validate every field consumed from an authenticated Greenfield invoice.
+ *
+ * @param mixed       $data
+ * @param string|null $expectedStoreId
+ * @return string|null
+ */
+function bpValidateBtcpayInvoiceResponseData($data, $expectedStoreId = null)
 {
     if (!is_array($data)) {
         return 'Invoice data must be an object.';
     }
 
-    foreach (array('id', 'orderId', 'price', 'currency', 'status', 'posData') as $field) {
+    foreach (array('id', 'amount', 'currency', 'status', 'checkoutLink', 'metadata') as $field) {
         if (!array_key_exists($field, $data)) {
             return 'Invoice data is missing ' . $field . '.';
         }
@@ -335,26 +369,39 @@ function bpValidateBtcpayInvoiceResponseData($data)
     if (!bpIsValidInvoiceIdentifier($data['id'])) {
         return 'Invoice ID is invalid.';
     }
-    if (!is_scalar($data['orderId']) || is_bool($data['orderId']) ||
-        trim((string) $data['orderId']) === '' || strlen((string) $data['orderId']) > 128) {
+    if ($expectedStoreId !== null && array_key_exists('storeId', $data) &&
+        (!is_string($data['storeId']) || !hash_equals($expectedStoreId, $data['storeId']))) {
+        return 'Invoice belongs to a different store.';
+    }
+    if (!is_array($data['metadata'])) {
+        return 'Invoice metadata is invalid.';
+    }
+    $orderId = bpInvoiceOrderId($data);
+    if ($orderId === null || trim($orderId) === '' || strlen($orderId) > 128) {
         return 'Invoice order ID is invalid.';
     }
-    if (!is_scalar($data['price']) || is_bool($data['price']) ||
-        strlen((string) $data['price']) > 128 || !is_numeric(trim((string) $data['price']))) {
-        return 'Invoice price is invalid.';
+    if (!is_scalar($data['amount']) || is_bool($data['amount']) ||
+        strlen((string) $data['amount']) > 128 || !is_numeric(trim((string) $data['amount']))) {
+        return 'Invoice amount is invalid.';
     }
     if (!is_string($data['currency']) ||
         preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,15}$/D', trim($data['currency'])) !== 1) {
         return 'Invoice currency is invalid.';
     }
     if (!is_string($data['status']) ||
-        preg_match('/^[A-Za-z0-9_-]{1,32}$/D', trim($data['status'])) !== 1) {
+        !in_array(strtolower(trim($data['status'])), array('new', 'processing', 'expired', 'invalid', 'settled'), true)) {
         return 'Invoice status is invalid.';
     }
-    if (isset(bpDecodePosData($data['posData'], false)['error'])) {
-        return 'Invoice posData is invalid.';
+    if (array_key_exists('additionalStatus', $data) && $data['additionalStatus'] !== null &&
+        (!is_string($data['additionalStatus']) ||
+            preg_match('/^[A-Za-z0-9_-]{1,32}$/D', trim($data['additionalStatus'])) !== 1)) {
+        return 'Invoice additional status is invalid.';
     }
-    if (array_key_exists('url', $data) && (!is_string($data['url']) || trim($data['url']) === '')) {
+    if (array_key_exists('type', $data) && $data['type'] !== null &&
+        (!is_string($data['type']) || strtolower($data['type']) !== 'standard')) {
+        return 'Invoice type is not supported.';
+    }
+    if (!is_string($data['checkoutLink']) || trim($data['checkoutLink']) === '') {
         return 'Invoice checkout URL is invalid.';
     }
 
@@ -362,48 +409,233 @@ function bpValidateBtcpayInvoiceResponseData($data)
 }
 
 /**
- * $options can include ('apiKey')
+ * Create an invoice: POST /api/v1/stores/{storeId}/invoices
+ * Requires the btcpay.store.cancreateinvoice permission.
  *
- * @param  string $invoiceId
- * @param  string $apiKey
- * @param  string $btcpayUrl
+ * @param string $btcpayUrl
+ * @param string $apiKey
+ * @param string $storeId
+ * @param array  $request  Greenfield CreateInvoiceRequest body.
  * @return array
  */
-function bpGetInvoice($invoiceId, $apiKey = false, $btcpayUrl = null)
+function bpCreateInvoice($btcpayUrl, $apiKey, $storeId, array $request)
 {
-    global $bpOptions;
-
-    if (!$apiKey) {
-        $apiKey = $bpOptions['apiKey'];
+    if (!bpIsValidStoreIdentifier($storeId)) {
+        return array('error' => 'The BTCPay Store ID is invalid.', 'error_kind' => 'local');
     }
 
-    if (!$btcpayUrl) {
-        $btcpayUrl = $bpOptions['btcpayUrl'];
-    }
-
-    if (!bpIsValidInvoiceIdentifier($invoiceId)) {
-        return array('error' => 'Invalid BTCPay invoice ID.', 'error_kind' => 'request');
-    }
-
-    $btcpayUrl = getFullUri($btcpayUrl,"/invoices");
-
-    $response = bpCurl($btcpayUrl . '/' . rawurlencode($invoiceId), $apiKey);
-
+    $response = bpGreenfieldRequest(
+        $btcpayUrl,
+        $apiKey,
+        'POST',
+        '/api/v1/stores/' . rawurlencode($storeId) . '/invoices',
+        $request
+    );
     if (isset($response['error'])) {
         return $response;
     }
 
-    if (!array_key_exists('data', $response)) {
-        return array('error' => 'BTCPay Server response is missing invoice data.', 'error_kind' => 'upstream');
+    $schemaError = bpValidateBtcpayInvoiceResponseData($response, $storeId);
+    if ($schemaError !== null) {
+        bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpCreateInvoice(): ' . $schemaError);
+        return array('error' => 'BTCPay Server returned malformed invoice data.', 'error_kind' => 'upstream');
     }
-    $schemaError = bpValidateBtcpayInvoiceResponseData($response['data']);
+
+    return $response;
+}
+
+/**
+ * Fetch an invoice: GET /api/v1/stores/{storeId}/invoices/{invoiceId}
+ * Requires the btcpay.store.canviewinvoices permission.
+ *
+ * @param string $btcpayUrl
+ * @param string $apiKey
+ * @param string $storeId
+ * @param string $invoiceId
+ * @return array
+ */
+function bpGetInvoice($btcpayUrl, $apiKey, $storeId, $invoiceId)
+{
+    if (!bpIsValidStoreIdentifier($storeId)) {
+        return array('error' => 'The BTCPay Store ID is invalid.', 'error_kind' => 'local');
+    }
+    if (!bpIsValidInvoiceIdentifier($invoiceId)) {
+        return array('error' => 'Invalid BTCPay invoice ID.', 'error_kind' => 'request');
+    }
+
+    $response = bpGreenfieldRequest(
+        $btcpayUrl,
+        $apiKey,
+        'GET',
+        '/api/v1/stores/' . rawurlencode($storeId) . '/invoices/' . rawurlencode($invoiceId)
+    );
+    if (isset($response['error'])) {
+        return $response;
+    }
+
+    $schemaError = bpValidateBtcpayInvoiceResponseData($response, $storeId);
     if ($schemaError !== null) {
         bpLog('[ERROR] In modules/gateways/btcpay/bp_lib.php::bpGetInvoice(): ' . $schemaError);
         return array('error' => 'BTCPay Server returned malformed invoice data.', 'error_kind' => 'upstream');
     }
-    if (!hash_equals($invoiceId, $response['data']['id'])) {
+    if (!hash_equals($invoiceId, $response['id'])) {
         return array('error' => 'BTCPay Server returned a different invoice ID.', 'error_kind' => 'upstream');
     }
 
     return $response;
+}
+
+/**
+ * Describe the API key in use: GET /api/v1/api-keys/current
+ *
+ * @param string $btcpayUrl
+ * @param string $apiKey
+ * @return array
+ */
+function bpGetCurrentApiKey($btcpayUrl, $apiKey)
+{
+    return bpGreenfieldRequest($btcpayUrl, $apiKey, 'GET', '/api/v1/api-keys/current');
+}
+
+/**
+ * Cheap functional probe that the key can read the store's invoices.
+ *
+ * @param string $btcpayUrl
+ * @param string $apiKey
+ * @param string $storeId
+ * @return array
+ */
+function bpProbeStoreInvoices($btcpayUrl, $apiKey, $storeId)
+{
+    if (!bpIsValidStoreIdentifier($storeId)) {
+        return array('error' => 'The BTCPay Store ID is invalid.', 'error_kind' => 'local');
+    }
+
+    return bpGreenfieldRequest(
+        $btcpayUrl,
+        $apiKey,
+        'GET',
+        '/api/v1/stores/' . rawurlencode($storeId) . '/invoices?take=1&skip=0'
+    );
+}
+
+/**
+ * Check whether a Greenfield permission list grants a store permission,
+ * either globally or scoped to the given store.
+ *
+ * @param array  $permissions
+ * @param string $permission  e.g. btcpay.store.cancreateinvoice
+ * @param string $storeId
+ * @return bool
+ */
+function bpApiKeyGrants(array $permissions, $permission, $storeId)
+{
+    $implied = array(
+        'btcpay.store.cancreateinvoice' => array('btcpay.store.canmodifyinvoices', 'btcpay.store.canmodifystoresettings'),
+        'btcpay.store.canviewinvoices' => array('btcpay.store.canmodifyinvoices', 'btcpay.store.canmodifystoresettings', 'btcpay.store.canviewstoresettings'),
+    );
+    $candidates = array_merge(array($permission), isset($implied[$permission]) ? $implied[$permission] : array());
+
+    foreach ($permissions as $granted) {
+        if (!is_string($granted)) {
+            continue;
+        }
+        if ($granted === 'unrestricted') {
+            return true;
+        }
+        $parts = explode(':', $granted, 2);
+        $name = $parts[0];
+        $scope = isset($parts[1]) ? $parts[1] : null;
+        if (!in_array($name, $candidates, true)) {
+            continue;
+        }
+        if ($scope === null || hash_equals($storeId, $scope)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Read the raw BTCPay-Sig header from the server variables.
+ *
+ * @param array $server
+ * @return string|null
+ */
+function bpWebhookSignatureHeader(array $server)
+{
+    if (isset($server['HTTP_BTCPAY_SIG']) && is_string($server['HTTP_BTCPAY_SIG'])) {
+        return trim($server['HTTP_BTCPAY_SIG']);
+    }
+
+    return null;
+}
+
+/**
+ * Verify a Greenfield webhook delivery. BTCPay sends
+ * "BTCPay-Sig: sha256=HMAC-SHA256(secret, body)" in lower-case hex.
+ *
+ * @param mixed  $rawBody
+ * @param mixed  $signatureHeader
+ * @param mixed  $secret
+ * @return bool
+ */
+function bpVerifyWebhookSignature($rawBody, $signatureHeader, $secret)
+{
+    if (!is_string($rawBody) || !is_string($signatureHeader) || !is_string($secret) || $secret === '') {
+        return false;
+    }
+    if (preg_match('/^sha256=([0-9a-fA-F]{64})$/D', $signatureHeader, $matches) !== 1) {
+        return false;
+    }
+
+    $expected = hash_hmac('sha256', $rawBody, $secret);
+
+    return hash_equals($expected, strtolower($matches[1]));
+}
+
+/**
+ * Extract the fields consumed from a (signature-verified) webhook delivery.
+ *
+ * Only the invoice ID is used to select the record to re-fetch through the
+ * authenticated API. Status and metadata in the delivery are never consumed,
+ * since deliveries can be replayed out of order.
+ *
+ * @param array  $payload
+ * @param string $expectedStoreId
+ * @return array  ['ignored' => true, 'type' => ...] for non-invoice events,
+ *                ['error' => ..., 'status' => http] on invalid payloads, or
+ *                ['invoice_id' => ..., 'type' => ..., 'delivery_id' => ..., 'is_redelivery' => bool].
+ */
+function bpValidateWebhookPayload(array $payload, $expectedStoreId)
+{
+    if (!array_key_exists('type', $payload) || !is_string($payload['type']) ||
+        preg_match('/^[A-Za-z0-9_]{1,64}$/D', $payload['type']) !== 1) {
+        return array('error' => 'Webhook event type is invalid.', 'status' => 400);
+    }
+    $type = $payload['type'];
+
+    if (strpos($type, 'Invoice') !== 0) {
+        return array('ignored' => true, 'type' => $type);
+    }
+
+    if (!array_key_exists('invoiceId', $payload) || !bpIsValidInvoiceIdentifier($payload['invoiceId'])) {
+        return array('error' => 'Webhook invoice ID is invalid.', 'status' => 400);
+    }
+    if (!array_key_exists('storeId', $payload) || !is_string($payload['storeId']) ||
+        !hash_equals((string) $expectedStoreId, $payload['storeId'])) {
+        return array('error' => 'Webhook store ID does not match the configured store.', 'status' => 409);
+    }
+
+    $deliveryId = isset($payload['deliveryId']) && bpIsValidInvoiceIdentifier($payload['deliveryId'])
+        ? $payload['deliveryId']
+        : null;
+
+    return array(
+        'invoice_id' => $payload['invoiceId'],
+        'type' => $type,
+        'delivery_id' => $deliveryId,
+        'is_redelivery' => isset($payload['isRedelivery']) && $payload['isRedelivery'] === true,
+    );
 }

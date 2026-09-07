@@ -5,9 +5,9 @@
   "license": "mit",
   "category": "payments",
   "description": {
-    "name": "BTCPay Server (Legacy API)",
+    "name": "BTCPay Server (Greenfield API)",
     "tagline": "Accept non-custodial Bitcoin and Altcoin payments.",
-    "long": "With BTCPay Server you can become your own payment processor with no 3rd party taking a cut or censoring transactions."
+    "long": "With BTCPay Server you can become your own payment processor with no 3rd party taking a cut or censoring transactions. This version uses the BTCPay Server Greenfield API and signed webhooks."
   },
   "logo": {
     "filename": "btcpay.png"
@@ -15,7 +15,7 @@
   "support": {
     "homepage": "https:\/\/btcpayserver.org\/",
     "support_url": "https://github.com/btcpayserver/whmcs-plugin\/issues",
-    "docs_url": "https:\/\/github.com\/btcpayserver\/whmcs-plugin\/blob\/master\/GUIDE.md"
+    "docs_url": "https:\/\/docs.btcpayserver.org\/API\/Greenfield\/v1\/"
   },
   "authors": [
     {
