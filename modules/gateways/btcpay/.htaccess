@@ -22,10 +22,10 @@
 Order deny,allow
 Deny from all
 
-<Files createinvoice.php>
+<FilesMatch "^(createinvoice|manage)\.php$">
 order allow,deny
 allow from all
-</Files>
+</FilesMatch>
 <Files ~ "^.*\.(LOG|log|back|bak|bk|lock|lck|LCK|txt|text|backup|pem|PEM|TXT)">
     Order allow,deny
     Deny from all

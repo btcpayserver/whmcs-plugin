@@ -241,7 +241,7 @@ function bpRequestUsesOnionHost(array $server)
 }
 
 /**
- * Parse and bound the untrusted legacy callback request before accessing it.
+ * Parse and bound the untrusted webhook request before accessing it.
  *
  * @param array  $server
  * @param mixed  $body
@@ -289,7 +289,7 @@ function bpParseCallbackRequest(array $server, $body, $maximumBytes = BP_MAX_CAL
         return array('error' => 'Callback request body is not valid JSON.', 'status' => 400);
     }
 
-    if (!is_array($payload)) {
+    if (!is_array($payload) || substr(ltrim($body), 0, 1) !== '{') {
         return array('error' => 'Callback JSON must be an object.', 'status' => 400);
     }
 

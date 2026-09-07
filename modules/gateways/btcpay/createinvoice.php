@@ -24,23 +24,12 @@
  */
 
 use WHMCS\Database\Capsule;
+use BTCPayWHMCS\Greenfield;
 
-include __DIR__ . '/../../../includes/functions.php';
-include __DIR__ . '/../../../includes/gatewayfunctions.php';
-include __DIR__ . '/../../../includes/invoicefunctions.php';
-
-require __DIR__ . '/bp_lib.php';
-
-if (file_exists(__DIR__ . '/../../../dbconnect.php')) {
-    include __DIR__ . '/../../../dbconnect.php';
-} else if (file_exists(__DIR__ . '/../../../init.php')) {
-    include __DIR__ . '/../../../init.php';
-} else {
-    bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
-    die('[ERROR] In modules/gateways/btcpay/createinvoice.php: include error: Cannot find dbconnect.php or init.php');
-}
-
-require_once __DIR__ . '/bp_invoice_contract.php';
+require_once __DIR__ . '/../../../init.php';
+require_once __DIR__ . '/../../../includes/gatewayfunctions.php';
+require_once __DIR__ . '/../../../includes/invoicefunctions.php';
+require_once __DIR__ . '/bootstrap.php';
 
 $gatewaymodule = 'btcpay';
 
@@ -55,7 +44,7 @@ $GATEWAY = getGatewayVariables($gatewaymodule);
 function bpAbortInvoiceCreation($status, $publicMessage, $logMessage = null)
 {
     if ($logMessage !== null) {
-        bpLog('[ERROR] In modules/gateways/btcpay/createinvoice.php: ' . $logMessage);
+        error_log('[ERROR] In modules/gateways/btcpay/createinvoice.php: ' . $logMessage);
     }
     if (!headers_sent()) {
         http_response_code($status);
@@ -106,6 +95,8 @@ if (empty($GATEWAY['type'])) {
 }
 
 try {
+    $GATEWAY = bpGetGatewaySettings();
+    $client = new Greenfield($GATEWAY);
     bpEnsureInvoiceContractTable();
 
     // Scope the first lookup to the session owner so guessed sequential invoice
@@ -122,10 +113,7 @@ try {
     }
 
     $systemUrl = bpGetConfiguredWhmcsSystemUrl();
-    $notificationUrl = bpBuildTrustedUrl(
-        $systemUrl,
-        'modules/gateways/callback/btcpay.php'
-    );
+    $orderUrl = bpBuildTrustedUrl($systemUrl, 'viewinvoice.php', ['id' => $invoiceId]);
     $returnUrl = bpBuildTrustedReturnUrl(
         $systemUrl,
         $invoiceId,
@@ -142,10 +130,11 @@ try {
     $result = Capsule::connection()->transaction(function () use (
         $GATEWAY,
         $btcpayUrl,
+        $client,
         $clientId,
         $gatewaymodule,
         $invoiceId,
-        $notificationUrl,
+        $orderUrl,
         $returnUrl
     ) {
         // This row lock serializes invoice creation so concurrent form submits
@@ -202,28 +191,20 @@ try {
             $currency
         );
         foreach ($reusableContracts as $contract) {
-            $existing = bpGetInvoice($contract->btcpay_invoice_id, $GATEWAY['apiKey'], $btcpayUrl);
-            if (isset($existing['error'])) {
-                // If an existing invoice cannot be authenticated, fail closed.
-                // Creating another one here would reintroduce duplicate invoices.
-                throw new RuntimeException('Unable to authenticate an existing BTCPay invoice.');
-            }
-
-            $contractError = bpValidateBtcpayInvoiceContract($existing['data'], $contract);
-            if ($contractError !== null) {
-                throw new RuntimeException('Existing BTCPay invoice contract mismatch: ' . $contractError);
-            }
-
-            $existingStatus = strtolower(trim($existing['data']['status']));
+            // Reuse also recovers settlement if its webhook was missed during upgrade.
+            $synchronized = bpSynchronizeInvoice($client, $contract->btcpay_invoice_id);
+            bpLogPaymentResult($GATEWAY, $synchronized);
+            $existing = $synchronized['invoice'];
+            $existingStatus = strtolower($existing['status']);
             if ($existingStatus === 'expired' || $existingStatus === 'invalid') {
                 continue;
             }
-            if (!in_array($existingStatus, array('new', 'paid', 'confirmed', 'complete'), true)) {
+            if (!in_array($existingStatus, array('new', 'processing', 'settled'), true)) {
                 throw new RuntimeException('Existing BTCPay invoice has an unsupported status.');
             }
 
             $contractError = bpValidateCreatedInvoiceData(
-                $existing['data'],
+                $existing,
                 $invoiceId,
                 $price,
                 $currency
@@ -233,8 +214,8 @@ try {
             }
 
             return array(
-                'checkout_url' => bpValidateCheckoutUrl($existing['data']['url'], $btcpayUrl),
-                'btcpay_invoice_id' => $existing['data']['id'],
+                'checkout_url' => bpValidateCheckoutUrl($existing['checkoutLink'], $btcpayUrl),
+                'btcpay_invoice_id' => $existing['id'],
                 'reused' => true,
             );
         }
@@ -242,40 +223,9 @@ try {
         $transactionSpeed = isset($GATEWAY['transactionSpeed'])
             ? strtolower(trim($GATEWAY['transactionSpeed']))
             : 'medium';
-        if (!in_array($transactionSpeed, array('low', 'medium', 'high'), true)) {
-            throw new RuntimeException('The configured transaction speed is invalid.');
-        }
-
-        // Send only the data needed to create and reconcile the payment. Buyer
-        // profile fields are deliberately not disclosed to BTCPay.
-        $options = array(
-            'notificationURL' => $notificationUrl,
-            'redirectURL' => $returnUrl,
-            'apiKey' => $GATEWAY['apiKey'],
-            // Use native JSON booleans. BTCPay's legacy request model declares
-            // these as bools, and full notifications provide the paid and
-            // terminal lifecycle events in addition to the confirmed event.
-            'fullNotifications' => true,
-            'physical' => true,
-            'transactionSpeed' => $transactionSpeed,
-            'currency' => $currency,
-            'btcpayUrl' => $btcpayUrl,
-        );
-
-        $invoice = bpCreateInvoice($invoiceId, $price, $invoiceId, $options);
-        if (isset($invoice['error'])) {
-            throw new RuntimeException('BTCPay invoice creation failed.');
-        }
-        if (!isset($invoice['data'])) {
-            throw new RuntimeException('BTCPay invoice creation returned no invoice data.');
-        }
-
-        $schemaError = bpValidateBtcpayInvoiceResponseData($invoice['data']);
-        if ($schemaError !== null) {
-            throw new RuntimeException('BTCPay invoice creation schema error: ' . $schemaError);
-        }
+        $invoice = $client->createInvoice($invoiceId, $price, $currency, $returnUrl, $orderUrl, $transactionSpeed);
         $contractError = bpValidateCreatedInvoiceData(
-            $invoice['data'],
+            $invoice,
             $invoiceId,
             $price,
             $currency
@@ -284,19 +234,20 @@ try {
             throw new RuntimeException('BTCPay invoice creation contract mismatch: ' . $contractError);
         }
 
-        $checkoutUrl = bpValidateCheckoutUrl($invoice['data']['url'], $btcpayUrl);
+        $checkoutUrl = bpValidateCheckoutUrl($invoice['checkoutLink'], $btcpayUrl);
         bpStoreInvoiceContract(array(
-            'btcpay_invoice_id' => (string) $invoice['data']['id'],
+            'btcpay_invoice_id' => (string) $invoice['id'],
             'whmcs_invoice_id' => $invoiceId,
             'whmcs_amount' => $whmcsAmount,
             'whmcs_currency' => $whmcsCurrency,
-            'btcpay_amount' => $invoice['data']['price'],
-            'btcpay_currency' => $invoice['data']['currency'],
+            'btcpay_amount' => $invoice['amount'],
+            'btcpay_currency' => $invoice['currency'],
+            'connection_key' => $client->connectionKey(),
         ));
 
         return array(
             'checkout_url' => $checkoutUrl,
-            'btcpay_invoice_id' => $invoice['data']['id'],
+            'btcpay_invoice_id' => $invoice['id'],
             'reused' => false,
         );
     });
@@ -315,8 +266,9 @@ try {
     exit;
 } catch (Throwable $exception) {
     bpAbortInvoiceCreation(
-        500,
+        $exception instanceof BTCPayWHMCS\GatewayException ? $exception->httpStatus : 503,
         'Unable to create or resume the BTCPay invoice.',
-        'Secure invoice creation failed for WHMCS invoice #' . $invoiceId . ': ' . $exception->getMessage()
+        'Secure invoice creation failed for WHMCS invoice #' . $invoiceId . '. ' .
+            ($exception instanceof BTCPayWHMCS\GatewayException ? $exception->getMessage() : 'Check gateway configuration and database permissions.')
     );
 }

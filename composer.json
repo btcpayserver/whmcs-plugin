@@ -21,19 +21,29 @@
         "ext-bcmath": "*",
         "ext-curl": "*",
         "ext-json": "*",
-        "composer/installers": "~1.0"
+        "ext-mbstring": "*",
+        "btcpayserver/btcpayserver-greenfield-php": "^2.9.1"
     },
     "require-dev": {
-        "phpmd/phpmd": "*",
-        "phpdocumentor/phpdocumentor": "*",
-        "phing/phing": "*",
-        "pdepend/pdepend" : "1.1.0",
-        "squizlabs/php_codesniffer": "*",
-        "phpunit/phpunit": "*",
-        "phploc/phploc": "*",
-        "phpunit/phpunit-skeleton-generator": "*"
+        "illuminate/database": "^10.49",
+        "illuminate/events": "^10.49"
+    },
+    "scripts": {
+        "test": [
+            "@php tests/bp_invoice_contract_test.php",
+            "@php tests/btcpay_security_test.php",
+            "@php tests/greenfield_test.php",
+            "@php tests/webhook_setup_test.php",
+            "@php tests/webhook_reregister_test.php",
+            "@php tests/manage_page_test.php",
+            "@php tests/settings_save_test.php"
+        ],
+        "test-integration": "@php tests/integration_test.php"
     },
     "config": {
-        "bin-dir": "bin"
+        "vendor-dir": "modules/gateways/btcpay/vendor",
+        "platform": {"php": "8.1.0"},
+        "sort-packages": true,
+        "allow-plugins": false
     }
 }
