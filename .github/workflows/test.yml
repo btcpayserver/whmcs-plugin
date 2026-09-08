@@ -1,0 +1,42 @@
+name: Test gateway
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php: ['8.1', '8.3', '8.4']
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test-password
+          MYSQL_DATABASE: btcpay_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -ptest-password"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: bcmath, curl, json, mbstring, pdo_mysql, zip
+          tools: composer:v2
+          coverage: none
+      - run: composer validate --strict
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: composer test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tests/webhook_setup_ui_test.js
+      - run: composer test-integration
+        env:
+          BTCPAY_TEST_DB_HOST: 127.0.0.1
+          BTCPAY_TEST_DB_PORT: '3306'
+          BTCPAY_TEST_DB_PASSWORD: test-password
+      - run: bash scripts/build-release.sh v4.0.0

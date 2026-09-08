@@ -1,102 +1,225 @@
 # Using the BTCPay Server payment plugin for WHMCS
 
+This guide covers plugin **v4.0.0**, which uses the BTCPay Server Greenfield API and signed webhooks.
+
+> **Upgrading from the legacy API:** v3.3.0 was the latest legacy plugin release. Its [installation and configuration guide is preserved at the release commit](https://github.com/btcpayserver/whmcs-plugin/blob/f4f1c41d662afa0d12faf4a15308bcbc4a6d8896/GUIDE.md). [BTCPay Server 2.4.4](https://github.com/btcpayserver/btcpayserver/releases/tag/v2.4.4) removed the legacy BitPay Basic-auth API keys used by plugin 3.x as part of API-key security hardening. Plugin 3.x therefore cannot connect to BTCPay Server 2.4.4 or later. Greenfield also exists in earlier BTCPay Server releases: **2.4.4 is not a minimum requirement for plugin 4.0.0**. Use a maintained BTCPay Server release with the Greenfield invoice, API-key and webhook endpoints.
+
 ## Prerequisites
 
-- PHP version 8.1 or newer, lower versions may work but are not maintained
-- The bcmath, curl, gd, intl, json and mbstring PHP extensions are available
-- WHMCS ([Download and installation instructions](https://download.whmcs.com/))
-- You have a BTCPay Server version 1.3.0 or later, either [self-hosted](https://docs.btcpayserver.org/Deployment/) or [hosted by a third-party](https://docs.btcpayserver.org/Deployment/ThirdPartyHosting/)
-- [You've a registered account on the instance](https://docs.btcpayserver.org/RegisterAccount/)
-- [You've a BTCPay store on the instance](https://docs.btcpayserver.org/CreateStore/)
-- [You've a wallet connected to your store](https://docs.btcpayserver.org/WalletSetup/)
+- PHP 8.1 or newer with bcmath, curl, json and mbstring.
+- A WHMCS version compatible with your PHP version. The previous plugin was tested with WHMCS 9.0.6; v4 should be verified on your staging installation before production.
+- A BTCPay Server account, a store, and a connected wallet or Lightning node.
+- Outbound connectivity from WHMCS to BTCPay, and inbound connectivity from BTCPay to the WHMCS callback URL.
+- The WHMCS database user needs CREATE and ALTER privileges for the plugin's invoice mapping table.
 
+## Install the files
 
-## Installation
+For an existing v3.x installation, follow the dedicated [v3.x to v4.x upgrade checklist](#upgrade-from-v3x-to-v4x) instead.
 
-1. Download the latest release from the [releases page](https://github.com/btcpayserver/whmcs-plugin/releases). e.g. BTCPay-WHMCS-Plugin-v3.1.0.zip
-2. Extract the .zip file which will result in a `modules/gateways/btcpay` directory
-3. Copy those files into your WHMCS root directory or copy only the `btcpay` directory so it ends up in the `modules/gateways/` directory
-4. Double check that you now have files in `PATH_TO_WHMCS/modules/gateways/btcpay/` directory
+1. Back up your WHMCS database and existing gateway files.
+2. Download `BTCPay-WHMCS-Plugin-v4.0.0.zip` from the [releases page](https://github.com/btcpayserver/whmcs-plugin/releases). Choose the attached plugin ZIP, not GitHub's automatically generated source archive.
+3. Extract it and merge the archive's **`modules/` and `includes/` directories** into your existing WHMCS directories, overwriting matching BTCPay files only. Do not replace or delete the WHMCS directories themselves or unrelated modules/hooks. The plugin files are:
+   - `modules/gateways/btcpay.php`
+   - `modules/gateways/btcpay/`, including `vendor/`
+   - `modules/gateways/callback/btcpay.php`
+   - `includes/hooks/btcpay.php` — adds the administrator-side JavaScript for the explicit webhook setup button; it does not handle settings saves.
+4. Check that `modules/gateways/btcpay/vendor/autoload.php` exists on the server. Composer is not required on the production server when installing the release ZIP.
 
-### Security upgrade note
+Continue with [Configure BTCPay Server](#configure-btcpay-server) and [Configure WHMCS](#configure-whmcs).
 
-This version creates a `mod_btcpay_invoice_contracts` table in the WHMCS database before it creates the first new BTCPay invoice. The WHMCS database user must have permission to create this table.
+## Upgrade from v3.x to v4.x
 
-Callbacks for BTCPay invoices created by older plugin versions are intentionally rejected because they have no persisted amount, currency, or invoice-ID contract. Deploy the update when no BTCPay checkout is active and allow the normal BTCPay invoice-expiration window to pass before replacing the old files.
+This is an **in-place file upgrade**, not a gateway reinstallation. Keep the existing `btcpay` gateway activated; do not deactivate, delete or recreate it. Existing WHMCS invoices and settings remain associated with the same gateway.
 
-Invoice creation now requires an authenticated WHMCS client session that owns the invoice. Callback and return URLs are loaded from WHMCS rather than accepted from the browser, and buyer profile data is not sent to BTCPay. Repeated or concurrent submissions reuse a matching active BTCPay invoice.
+1. **Prepare and back up.** Rehearse the upgrade on staging before production. Check the [prerequisites](#prerequisites), back up the WHMCS database and existing BTCPay plugin files, and arrange a maintenance window without new BTCPay checkouts. Keep using the **same BTCPay server and store** so existing invoices can be reconciled.
+2. **Download the packaged release.** Get the attached v4.x plugin ZIP from the [releases page](https://github.com/btcpayserver/whmcs-plugin/releases), for example `BTCPay-WHMCS-Plugin-v4.0.0.zip`. Do not use GitHub's automatically generated source ZIP: it does not contain the Composer dependencies.
+3. **Copy the files over the existing installation.** Extract the ZIP locally. Your WHMCS root is the directory containing WHMCS's `init.php`; upload the following paths relative to that root:
 
-The callback accepts only bounded JSON POST requests. If BTCPay later reports an already-credited transaction as `invalid` or unexpectedly `expired`, the plugin does not reverse accounting automatically; it records a **MANUAL REVIEW REQUIRED** entry in the gateway transaction log, WHMCS activity log, and PHP error log. An administrator must reconcile that invoice and transaction.
+   | Path inside the release ZIP | Action in your WHMCS installation |
+   | --- | --- |
+   | `modules/gateways/btcpay.php` | Overwrite the existing gateway module. |
+   | `modules/gateways/btcpay/` | Merge the complete directory, overwriting matching files. Include every subdirectory, especially `vendor/`, and hidden files such as `.htaccess`. |
+   | `modules/gateways/callback/btcpay.php` | Overwrite the existing callback handler. |
+   | `includes/hooks/btcpay.php` | Add or overwrite this hook for the webhook setup button beside the gateway settings. Overwrite any hook from an earlier experimental v4 build. |
 
-## Configuration
+   You can upload the archive's `modules/` and `includes/` directories together if your file-transfer tool **merges directories and overwrites matching files**. Do not replace the entire WHMCS `modules/` or `includes/` directory, delete unrelated files, or create nested paths such as `modules/modules/`. Uploading only the gateway PHP file is not sufficient.
 
-### Step 1: On WHMCS
-1. Navigate to **Apps & Integrations** in your admin dashboard.
-2. Search for "BTCPay" and click on the result.
-3. Click on "**Activate**" button to get to the configuration screen.
-4. Head over to your BTCPay Server instance to create an API key.
+   **Linux command-line example:** after backing up, run this on the WHMCS server from the directory containing the downloaded plugin ZIP. Replace `/var/www/whmcs` with your actual WHMCS root and adjust the ZIP filename if needed. Use the WHMCS file owner or your deployment account with write access.
 
-### Step 2: On your BTCPay Server instance (open in a new tab/browser window)
-1. Log in with your user.
-2. Select the store you want to connect to. Make sure it has setup a wallet so you can receive payments.
-3. Create a "Legacy API Key" on your BTCPay Server store account dashboard:
-  * On the left side of the screen, choose **Settings**.
-  * Select subnavigation entry **Access Tokens**.
-  * Below the "Legacy API Keys" headline click on the **Generate** button to instantly create a new one.
-  * Select and copy the entire string for the new API Key ID that you just created. It will look something like this: `43rp4rpa24d6Bz4BR44j8zL44PrU4npVv4DtJA4Kb8`.
+   ```bash
+   (
+     set -eu
+     btcpay_whmcs_root="/var/www/whmcs"
+     test -f "$btcpay_whmcs_root/init.php"
 
-### Step 3: Back on WHMCS
-1. Make sure "**Show on Order Form" is checked.
-2. Change "**Display Name**" to what you prefer e.g. "Bitcoin / Lightning Network payments"
-3. Paste the api key that you created and copied from step 2 above in the field "**Legacy API Key**".
-4. In "**BTCPay Server URL**" enter the domain from your own BTCPay Server instance (e.g. https://mainnet.demo.btcpayserver.org). 
-5. (optional) In "**BTCPay Server Tor URL**" you can enter the BTCPay Server's .onion address. Note: this will only work if your WHMCS is also reachable over Tor and your users use Tor Browser.
-6. (optional) In "**Redirect URL after invoice**" you can set a custom URL where the customer gets redirected after successful payment. If not it will redirect to the invoice page.
-7. Set "**Transaction Speed**" field. This setting determines how quickly you will receive a payment confirmation from BTCPay Server after an invoice is paid by a customer.
-  * High: A confirmation is sent instantly once the payment has been received by the gateway, means 0-conf, do not use.
-  * Medium: A confirmation is sent after 1 block confirmation (~10 mins) by the bitcoin network (**<== recommended setting**).
-  * Low: A confirmation is sent after the usual 6 block confirmations (~1 hour) by the bitcoin network.
-8. (optional, while troubleshooting) Check **Callback Diagnostics**. This records safe callback stages in the WHMCS Gateway Log, Activity Log, and PHP error log. It does not record callback bodies, cookies, buyer details, or API credentials.
-9. Click **Save Changes**.
+     btcpay_upgrade_dir="$(mktemp -d)"
+     unzip -q "BTCPay-WHMCS-Plugin-v4.0.0.zip" -d "$btcpay_upgrade_dir"
+     test -f "$btcpay_upgrade_dir/modules/gateways/btcpay/vendor/autoload.php"
+     test -f "$btcpay_upgrade_dir/includes/hooks/btcpay.php"
 
-Congrats, setup is done. Now test if the payment works.
+     cp -Rv -- "$btcpay_upgrade_dir/modules" "$btcpay_upgrade_dir/includes" "$btcpay_whmcs_root/"
+     echo "Temporary extracted files: $btcpay_upgrade_dir"
+   )
+   ```
 
-## Usage
+   The checks stop the example if the destination has no WHMCS `init.php` or the archive lacks required plugin files. `cp -R` merges both directories, includes hidden files such as `.htaccess`, and overwrites matching files without deleting unrelated files or leftover legacy files. Check the command's output for errors and ensure the copied files are readable by WHMCS. The temporary extraction directory can be removed after verification. Continue with the checks and configuration changes below; copying alone does not finish the upgrade.
 
-When a client chooses the BTCPay Server payment method, they will be presented the option to pay with Bitcoin via BTCPay Server. When clicking on "Complete order" button, they get redirected to a full-screen invoice page of your BTCPay Server where the client is presented with payment instructions.  Once payment is received, they can click "Back to store" to return to your website (by default they will be redirected to the order confirmation page).
+4. **Verify the upload.** Confirm that both `modules/gateways/btcpay/vendor/autoload.php` and `includes/hooks/btcpay.php` exist. All matching BTCPay files from the ZIP must be updated together, including any previous experimental automatic-save hook. You do not need Composer on the production server when using the packaged release. **Reload the gateway settings page after copying the files** to load the current webhook setup button and JavaScript.
+5. **Optionally remove obsolete legacy files.** After the upload, you may delete only `modules/gateways/btcpay/bp_lib.php` and `modules/gateways/btcpay/bp_options.php`. Leaving them in place is also safe: v4 never loads them. Keep the other `bp_*.php` helpers supplied in the new ZIP.
+6. **Update the existing gateway settings and set up the webhook.** Create a store-scoped Greenfield API key with the permissions in [Configure BTCPay Server](#configure-btcpay-server). Replace the legacy API key, enter the same store's **Store ID**, and normally leave **Manual Webhook Secret** blank. Existing server URL, Tor URL, redirect URL, transaction speed, display name and currency conversion settings can be retained. Save and wait for WHMCS to confirm success, then click **Set up / repair webhook** beside the manual-secret setting. Confirm **Webhook ready**. If the inline button is unavailable, open **Connection, webhook setup status and invoice recovery** and use **Set up / repair webhook** there. Saving settings alone does not register a webhook; see [Configure WHMCS](#configure-whmcs) for the complete steps.
+7. **Preserve and reconcile existing payments.** Do not delete or recreate `mod_btcpay_invoice_contracts` if it exists. The plugin automatically adds its connection identifier when it accesses the table, preserving stored amounts, currencies, invoice IDs and processing state. Open the connection/recovery page, click **Check connection**, then run **Reconcile saved invoices** through every batch as described in [Reconcile payments during an upgrade](#reconcile-payments-during-an-upgrade). Older v3.x invoices without a persisted mapping require manual reconciliation. Unsigned legacy notifications are no longer accepted after the file upgrade.
+8. **Test before reopening checkout.** Complete a small payment and confirm it is recorded as paid in WHMCS. Resume new BTCPay checkouts only after setup and payment verification succeed. Run reconciliation again to catch payments received during the changeover.
 
-**NOTE:** In case of on-chain payments that need to get included in a block your customer does not need to wait on the checkout page. The browser return does not mark the invoice paid. BTCPay sends a separate server-to-server legacy IPN when the configured confirmation threshold is reached; the plugin then marks the WHMCS invoice paid and triggers the corresponding WHMCS actions.
+The [legacy v3.3.0 guide](https://github.com/btcpayserver/whmcs-plugin/blob/f4f1c41d662afa0d12faf4a15308bcbc4a6d8896/GUIDE.md) is available for reference. Restoring v3.x plugin files will not restore legacy API connectivity on BTCPay Server 2.4.4 or later.
 
-In your WHMCS control panel, you can see the information associated with each order made via BTCPay Server by choosing **Orders > Pending Orders**.  This screen will tell you whether payment has been received by the BTCPay Server instance. You can also view the details for any paid invoice inside your BTCPay store dashboard under the **Invoices** page.
+## Configure BTCPay Server
 
-**NOTE:** This extension does not provide a means of automatically pulling a current BTC exchange rate for presenting BTC prices for your products to shoppers. This plugin only provides the means to accept payments in BTC and Lightning Network payments.
+1. Open **Account → API Keys** and generate an API key with:
+   - `btcpay.store.cancreateinvoice` — Create an invoice.
+   - `btcpay.store.canviewinvoices` — View invoices.
+   - `btcpay.store.webhooks.canmodifywebhooks` — Modify stores webhooks, required for the plugin's webhook setup and repair actions.
+   - Optional, for future refund support: `btcpay.store.cancreatenonapprovedpullpayments` — Create non-approved pull payments. The [current BTCPay integration guide](https://docs.btcpayserver.org/Development/ecommerce-integration-guide/#permissions) uses this narrower permission for refunds. **v4.0.0 does not implement refunds and does not require this permission.** You can add it now to avoid replacing the key later, or wait until refund support is implemented.
+2. Restrict each selected permission to the store used by WHMCS. Copy the key secret when it is shown. An API-key ID (for example, `akid_...`) is not the secret, and a legacy store access token cannot be reused.
+3. Copy the **Store ID** from **Store Settings → General**.
+4. Continue with the WHMCS settings below. You do not need to create a webhook or copy its secret manually.
 
-## Callback troubleshooting
+The plugin does not need unrestricted access, store-settings management, wallet spending, or API-key management permissions. API-key creation remains manual; the authorization-redirect flow can be added later.
 
-The payment return URL and payment notification URL serve different purposes. A successful return to `viewinvoice.php?id=...&paymentsuccess=true` only proves that the customer's browser can reach WHMCS. It does not prove that the BTCPay server can POST to:
+## Configure WHMCS
+
+1. For a new installation, open **Apps & Integrations**, find BTCPay Server, and activate it. For an upgrade, open the existing BTCPay gateway settings. Reload the page if it was already open when you uploaded the plugin files.
+2. Enter the **API Key**, **Store ID**, and **BTCPay Server URL**. Normally leave **Manual Webhook Secret** blank.
+3. Set the display name, for example “Bitcoin / Lightning Network”.
+4. Retain or select **Transaction Speed**:
+   - **Medium:** one block confirmation; the default and recommended setting.
+   - **Low-Medium:** two confirmations.
+   - **Low:** six confirmations.
+   - **High:** zero confirmations; accepts unconfirmed on-chain payments.
+   - **Store default:** use the speed policy configured in BTCPay.
+5. Optional: enter a **BTCPay Server Tor URL**. It is used for browser checkout when WHMCS is accessed through its .onion hostname. Server-to-server API calls still use the main BTCPay URL.
+6. Optional: set a **Redirect URL**. With it blank, the customer returns to their WHMCS invoice page. Returning to WHMCS does not itself mark an invoice paid.
+7. Click WHMCS's **Save Changes** button and **wait for WHMCS to confirm that the settings were saved successfully**. This saves the credentials only: it does not contact BTCPay or register a webhook. The setup action below uses saved settings, not unsaved values still in the form.
+8. Click **Set up / repair webhook** beside **Manual Webhook Secret**, then wait for the green **Webhook ready** message below the button. The button sends a separate request to the plugin's authenticated WHMCS endpoint. The server reads the saved credentials, checks the three required permissions, and registers an enabled webhook with automatic redelivery. BTCPay generates the secret; the webhook ID, URL, server/store identity and secret are stored through WHMCS's encrypted gateway-settings model, separately from the editable form fields. Only the setup status is returned to the browser; **Manual Webhook Secret stays blank** for a managed webhook. The saved success message remains green after reloading and on the connection/recovery page. It reports the last setup result, not a live webhook-delivery check.
+9. If JavaScript is unavailable or the inline button does not work, follow **Connection, webhook setup status and invoice recovery** beside the manual-secret setting and click **Set up / repair webhook** on that page. This performs the same operation without relying on the gateway form's JavaScript. Alternatively, while logged in as an administrator, open:
+   ```text
+   https://your-whmcs.example/modules/gateways/btcpay/manage.php
+   ```
+10. On the connection/recovery page, confirm **Webhook ready** and click **Check connection**. The connection check works even before webhook setup; it checks the saved key's permissions and access to the selected store without creating an invoice or webhook. It does not test inbound webhook delivery: complete a small payment to check that separately.
+
+Both webhook setup entry points require a logged-in administrator with **Configure Payment Gateways** permission in their WHMCS administrator role. This is the [native WHMCS permission name](https://developers.whmcs.com/api-reference/getadmindetails/), separate from the BTCPay API-key permissions. Incomplete uploads still allow the gateway settings page to open; reinstall the complete ZIP if dependencies are missing. After changing the saved API key, server/store or WHMCS System URL, run **Set up / repair webhook** again. Never share an API key or webhook secret in screenshots or troubleshooting logs.
+
+### Webhook setup and recovery
+
+The callback URL is built from WHMCS's configured **System URL**, including any installation subdirectory:
 
 ```text
 https://your-whmcs.example/modules/gateways/callback/btcpay.php
+or
+https://your-whmcs.example/whmcs/modules/gateways/callback/btcpay.php
 ```
 
-For an on-chain payment, a `paid` callback is recorded but does not credit WHMCS yet. With **medium** transaction speed the invoice is credited after one block confirmation; with **low**, after six. Lightning normally reaches the confirmation stage immediately.
+The registered events are `InvoiceCreated`, `InvoiceReceivedPayment`, `InvoicePaymentSettled`, `InvoiceProcessing`, `InvoiceSettled`, `InvoiceExpired` and `InvoiceInvalid`. The browser return URL is separate.
 
-To trace a payment:
+- Clicking **Set up / repair webhook** again reuses the saved webhook ID and secret. It repairs event subscriptions, automatic redelivery and the enabled state. Updating the callback URL preserves the secret; a deleted webhook is recreated with a new BTCPay-generated secret. Ordinary settings saves do none of these operations.
+- API failures do not delete or replace the existing webhook. Fix the credentials, permission, connectivity or upload problem, save any changed settings and wait for WHMCS's success confirmation, then click **Set up / repair webhook** again. The setup result is displayed beside the button or on the connection/recovery page.
+- If you already created a manual webhook at this exact callback URL and the plugin has no internal webhook record yet, enter its secret in **Manual Webhook Secret**, save successfully, then click **Set up / repair webhook**. The plugin can adopt that webhook. The generated/managed secret is kept internally, so submitting an old settings form cannot overwrite it. Clearing the manual field does not reset a managed webhook.
+- If a webhook already targets the callback URL but the plugin has lost its secret or retains a stale internal record, normal setup stops instead of creating a duplicate or silently changing its secret. Use the confirmed **Re-register webhook** action below. Multiple webhooks for the same callback URL need manual review.
+- Webhooks for other callback URLs are left alone. Changing the BTCPay server or store never reuses the previous connection's secret. Do not change either while old invoices still need reconciliation.
 
-1. Enable **Callback Diagnostics** in the BTCPay gateway configuration and save the settings.
-2. Open the affected invoice in BTCPay Server and inspect its **Events** section. Legacy notifications appear as `IPN ... sent` or `Error while sending IPN ...`. An HTTP 403, timeout, DNS error, or TLS error means the request did not complete successfully.
-3. In WHMCS, open **Billing > Gateway Log** and **Configuration > System Logs > Activity Log**, then search for `BTCPay callback` or the trace ID. The useful stages are `request_received`, `invoice_verified`, `awaiting_confirmation`, `payment_applied`, `duplicate_callback`, and `callback_rejected`.
-4. Disable **Callback Diagnostics** after testing to avoid unnecessary log volume.
+**Separate from WHMCS Save:** webhook setup is an explicit administrator action. The plugin does not intercept WHMCS's AJAX settings save, rely on model save events, or register webhooks during page loads. `includes/hooks/btcpay.php` only adds the administrator-side JavaScript for the button through WHMCS's documented [AdminAreaFooterOutput hook](https://developers.whmcs.com/hooks-reference/output#adminareafooteroutput). The button calls the plugin's authenticated, CSRF-protected endpoint using saved credentials; it does not call BTCPay directly or insert a generated secret into the settings form. No core WHMCS files need changes.
 
-Interpret the result as follows:
+After uploading a new build, **reload the gateway settings page** to load the new button and JavaScript. If the credentials were already saved correctly, there is no need to save them again: click **Set up / repair webhook**.
 
-| Last evidence | Meaning |
+- **Button missing:** confirm that your WHMCS administrator role has **Configure Payment Gateways** permission and that all plugin files were overwritten together.
+- **Button does nothing:** confirm that the updated `includes/hooks/btcpay.php` and `modules/gateways/btcpay/webhook-setup.js` were uploaded, then reload the page. Use the same action on the connection/recovery page if JavaScript remains unavailable.
+- **Connection page reports an unconfigured admin directory:** an earlier experimental v4 build incorrectly bootstrapped this standalone endpoint as an admin-directory page. Upload the current complete ZIP, including `modules/gateways/btcpay/manage.php`. Do not rename your admin directory or change `$customadminpath` to work around this plugin error; the endpoint remains under `modules/gateways/btcpay/` and checks the existing admin login and permission itself.
+- **Setup fails:** read the displayed message and inspect the PHP error log for `BTCPay`; do not expose credentials.
+
+Verify settings persistence, explicit setup and a payment on your WHMCS installation before production use.
+
+### Re-register a webhook or rotate its secret
+
+Use this explicit action when the saved secret is lost, the internal webhook record is stale or damaged, or you deliberately want a fresh secret. **Set up / repair webhook** preserves a working secret instead; normal settings saves do not change the managed webhook.
+
+1. Open **Connection, webhook setup status and invoice recovery** as an administrator with **Configure Payment Gateways** permission.
+2. In **Re-register webhook**, review the displayed server, store and callback URL. Check the replacement confirmation box, then click **Re-register webhook**. Confirmation expires after 15 minutes and cannot be reused; changing the saved connection or webhook also invalidates it.
+3. The plugin identifies the saved WHMCS webhook, or a single webhook at the exact callback URL if the record was lost. It creates an enabled replacement with automatic redelivery and a new BTCPay-generated secret, commits that secret through WHMCS's encrypted settings model, and only then deletes the previous webhook. No secret needs to be copied or displayed.
+4. Confirm **Webhook ready**, run **Reconcile saved invoices** through all batches, and test a payment. Notifications signed with the old secret are no longer accepted, and the replacement does not replay all earlier settlements. Deleting the previous webhook also removes its delivery history.
+
+The action leaves unrelated webhooks alone. If WHMCS's installation URL moved, it can replace the saved WHMCS webhook at the previous callback URL. It refuses ambiguous matches or a saved webhook whose remote URL was changed to an unrelated destination; inspect those in BTCPay first.
+
+If creation or local persistence fails, the previous webhook is not deleted. Remote creation cannot be rolled back together with the WHMCS database: a timeout or failed save can leave an extra webhook in BTCPay. Inspect the store webhooks and remove only the unused replacement before retrying. If deletion of the previous webhook fails after the new secret was saved, the new configuration is retained and a warning identifies the previous webhook for manual inspection/removal. Do not delete the new active webhook. Reconcile saved invoices after recovery.
+
+## Reconcile payments during an upgrade
+
+For invoices created with v3.3.0's persisted mapping, the existing BTCPay invoice can be fetched through Greenfield and checked against its saved WHMCS amount and currency. Checkout reuse and signed webhooks continue to use that mapping.
+
+A webhook registered today does not retroactively deliver every earlier settlement. On the connection/recovery page, click **Reconcile saved invoices**, then **Continue reconciliation** until the scan completes. Each submission checks up to five unprocessed mappings, including expired invoices that may since have been manually settled.
+
+- A settled invoice is credited exactly once, in its original WHMCS currency and amount.
+- A pending invoice remains pending.
+- Changed amounts, currencies, payment methods or server/store connections require manual review.
+- Invoices created by older plugins **without a persisted mapping** cannot be credited automatically. Reconcile those manually against BTCPay and the WHMCS transaction ledger; the plugin never infers a payment mapping from an order number alone.
+- Resolve errors and start a new scan to retry. Run another scan after the switch to catch payments received while configuration was being updated.
+
+Unsigned legacy IPNs are rejected after upgrading; existing mapped invoices are recovered through Greenfield or the new signed webhook. If BTCPay was already upgraded to 2.4.4, perform this reconciliation to recover payments whose legacy notifications failed.
+
+After testing a new checkout and verifying that WHMCS records its settlement, enable BTCPay on the order form again.
+
+## Payment behavior
+
+The gateway creates an invoice for the amount determined by WHMCS, applying its configured currency conversion with decimal arithmetic. Repeated submissions reuse a matching active invoice. Buyer profile details are not sent to BTCPay.
+
+`Processing` means a full payment has been detected but has not yet settled under the configured speed policy. Only explicit `Settled` status credits WHMCS. Lightning normally settles immediately.
+
+Partial and expired late payments are not automatically credited; inspect them in BTCPay. If an administrator explicitly marks an invoice settled there, the resulting settled state is accepted and logged. Overpayments credit only the original WHMCS amount; any excess must be handled separately. New invoices set payment tolerance to zero.
+
+Before crediting, the plugin requires `Settled` with an explicitly reported `additionalStatus` of `None`, `PaidOver`, `Marked` or `PaidLate`. `PaidLate` alone is never sufficient. A missing, invalid, partial or unknown additional status cannot credit WHMCS and requires manual review. Expired or invalid invoices reporting an overpayment are also flagged for manual review.
+
+If a credited invoice later becomes `Invalid` or `Expired`, the plugin records **MANUAL REVIEW REQUIRED** and never reverses accounting automatically.
+
+## Troubleshooting webhooks
+
+1. Temporarily enable **Callback Diagnostics** in the gateway settings.
+2. In BTCPay, inspect **Store Settings → Webhooks → [Modify] → Recent deliveries** and the invoice's events. Retry a failed delivery after fixing the cause.
+3. In WHMCS, inspect **Billing → Gateway Log**, the Activity Log and PHP error log. Look for the `BTCPay webhook` trace ID. Responses also include `X-BTCPay-WHMCS-Trace`.
+4. Disable diagnostics after troubleshooting.
+
+| Result | Meaning |
 | --- | --- |
-| BTCPay reports an IPN error and WHMCS has no `request_received` entry | A firewall, reverse proxy, IP allowlist, DNS, or TLS layer blocked the request before PHP. |
-| `request_received`, followed by `callback_rejected` | PHP received the request. Use the trace ID and HTTP status in the WHMCS logs to locate the validation or upstream API error. |
-| `invoice_verified` with `status: paid`, followed by `awaiting_confirmation` | The callback works; the selected confirmation threshold has not been reached yet. |
-| `payment_applied` | `addInvoicePayment()` completed and WHMCS should contain an invoice transaction. |
+| No `request_received` trace | Check the callback URL, firewall, proxy, DNS and TLS. |
+| HTTP 401 | Missing signature or a webhook-secret mismatch. |
+| HTTP 400 / 413 / 415 | Malformed, oversized or non-JSON request. |
+| HTTP 409 | Wrong store or an invoice no longer matches its saved payment contract. |
+| HTTP 502 / 503 | An API, dependency, configuration or storage failure; retry after repair. A very early delivery may also be retried until its invoice mapping is saved. |
+| `awaiting_confirmation` | Payment detected; the configured settlement threshold has not been reached. |
+| `payment_applied` | WHMCS received the invoice payment. |
+| `duplicate_callback` | That mapping was already credited. |
+| `unmapped_invoice_ignored` | No saved WHMCS mapping; other integrations' invoices are ignored. Check old unmapped payments manually. |
 
-In the current callback, HTTP 400 is reserved for a malformed request or invalid BTCPay invoice ID. HTTP 409 indicates that the authenticated invoice has no persisted mapping or does not match its WHMCS contract. The Gateway Log includes the specific verification error.
+Allow the exact callback path to receive BTCPay POST requests. The outbound address of BTCPay may differ from its hostname's DNS address. Authentication comes from the signed body plus the authenticated invoice fetch and saved mapping, not an IP allowlist.
 
-If the WHMCS installation is IP-restricted, allowing the DNS A record of the BTCPay hostname may not be sufficient: the server's outbound source address can differ because of NAT, a reverse proxy, IPv6, or hosting infrastructure. Determine the actual source address from the firewall/access log or BTCPay's IPN error details. The simplest reliable setup is to make only the exact callback path public (optionally rate-limited) while keeping the rest of WHMCS restricted. The callback does not trust the posted payment state: it re-fetches the invoice through the authenticated BTCPay API and validates its persisted invoice ID, amount, currency, and WHMCS mapping before applying payment.
+The module's `.htaccess` protects internal files on Apache. On Nginx, deny direct web access to the contents of `modules/gateways/btcpay/` except `createinvoice.php` and `manage.php`. Keep the separate callback path reachable. The management page enforces administrator authentication itself.
+
+## Development and releases
+
+Source checkouts require Composer:
+
+```sh
+composer install
+composer test
+```
+
+The PHP suite includes `tests/admin_footer_hook_test.php` for script loading and guards against automatic webhook setup during ordinary settings saves. The explicit setup button has JavaScript behavior tests using Node.js (22 or newer): run `node tests/webhook_setup_ui_test.js`. Node.js is only needed for these development tests, not on the WHMCS server.
+
+The standalone invoice example in `tests/standalone_invoice_cli.php` uses environment variables and must be run explicitly; it creates a real BTCPay invoice and is not part of automated tests.
+
+MySQL integration tests use a disposable database named `btcpay_test`, randomly prefixed tables, and the environment variables `BTCPAY_TEST_DB_HOST`, `BTCPAY_TEST_DB_PORT`, and `BTCPAY_TEST_DB_PASSWORD`. Run `composer test-integration` to exercise migration, reconciliation, concurrent settlement, webhook persistence and re-registration commit ordering/failure recovery. These tests substitute WHMCS's accounting and encryption boundaries. They do not replace testing on a real WHMCS installation: verify that settings save successfully, both explicit webhook setup entry points work, confirmed re-registration works, and a full WHMCS/BTCPay payment succeeds on staging before production deployment.
+
+Build the uploadable ZIP with:
+
+```sh
+bash scripts/build-release.sh v4.0.0
+```
+
+The build installs only production dependencies from `composer.lock` and verifies the extracted ZIP, including leftover legacy files and missing dependencies. It produces `dist/BTCPay-WHMCS-Plugin-v4.0.0.zip`. Run `composer install` afterward to restore development dependencies if needed. Dependencies are never committed; the GitHub release workflow installs and packages them.

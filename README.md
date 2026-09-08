@@ -2,13 +2,29 @@
 
 Bitcoin payment plugin for WHMCS using the BTCPay Server.
 
+Version 4 uses the official BTCPay Server Greenfield PHP library and signed webhooks.
+Download the attached release ZIP for a ready-to-upload installation; dependencies
+are included. Source checkouts require `composer install`.
+
+Upgrading from version 3 requires a Greenfield API key and store ID. Save the
+settings and wait for WHMCS to confirm success, then click **Set up / repair
+webhook** beside **Manual Webhook Secret** or on the connection/recovery page.
+This separate action registers the webhook and securely stores its
+BTCPay-generated secret internally; saving settings alone does not register it.
+Upload both `modules/` and `includes/` from the release ZIP and reload the gateway
+settings page.
+See the [installation and upgrade guide](GUIDE.md), including recovery of payments
+whose legacy notifications were missed. The legacy integration no longer works
+with BTCPay Server 2.4.4 or later.
+
 ## Quick Start Guide
 
 To get up and running with our plugin quickly, see the GUIDE here: https://github.com/btcpayserver/whmcs-plugin/blob/master/GUIDE.md
 
 ## Support
 
-* WHMCS version tested: v9.0.6
+* PHP 8.1+ with bcmath, curl, json and mbstring
+* WHMCS 9.0.6 was tested with v3; validate v4 on your staging installation
 * [GitHub Issues](https://github.com/btcpayserver/whmcs-plugin/issues)
 * Open an issue if you are having troubles with this plugin
 

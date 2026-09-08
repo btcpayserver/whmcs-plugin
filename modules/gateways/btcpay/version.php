@@ -1,4 +1,3 @@
 <?php
 
-global $version;
-$version = "3.2.2";
+const BTCPAY_WHMCS_VERSION = '4.0.0';

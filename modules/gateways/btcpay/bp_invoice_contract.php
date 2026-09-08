@@ -6,6 +6,46 @@ const BP_INVOICE_CONTRACT_TABLE = 'mod_btcpay_invoice_contracts';
 const BP_DECIMAL_SCALE = 18;
 const BP_CURRENCY_AMOUNT_SCALE = 8;
 
+function bpIsValidInvoiceIdentifier($value): bool
+{
+    return is_string($value) && preg_match('/^[A-Za-z0-9._~-]{1,128}$/D', $value) === 1;
+}
+
+function bpInvoiceOrderId(array $invoice): ?string
+{
+    $metadata = $invoice['metadata'] ?? null;
+    $id = is_array($metadata) ? ($metadata['orderId'] ?? null) : null;
+    return (is_string($id) || is_int($id)) && strlen((string) $id) <= 128 ? (string) $id : null;
+}
+
+/** Validate the API envelope independently of WHMCS-specific metadata. */
+function bpValidateBtcpayInvoiceResponseData($invoice): ?string
+{
+    if (!is_array($invoice) || !bpIsValidInvoiceIdentifier($invoice['id'] ?? null)) {
+        return 'Invoice ID is invalid.';
+    }
+    if (!isset($invoice['status']) || !is_string($invoice['status']) ||
+        !in_array($invoice['status'], ['New', 'Processing', 'Settled', 'Expired', 'Invalid'], true)) {
+        return 'Invoice status is invalid.';
+    }
+    try {
+        if (!bpDecimalIsPositive($invoice['amount'] ?? null)) {
+            return 'Invoice amount is invalid.';
+        }
+        bpNormalizeCurrencyCode($invoice['currency'] ?? null);
+    } catch (InvalidArgumentException $exception) {
+        return 'Invoice amount or currency is invalid.';
+    }
+    if (isset($invoice['metadata']) && !is_array($invoice['metadata'])) {
+        return 'Invoice metadata is invalid.';
+    }
+    if (isset($invoice['additionalStatus']) && (!is_string($invoice['additionalStatus']) ||
+        !preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $invoice['additionalStatus']))) {
+        return 'Invoice additional status is invalid.';
+    }
+    return null;
+}
+
 /**
  * Convert a regular or scientific-notation decimal to a canonical string.
  *
@@ -97,8 +137,7 @@ function bpDecimalIsPositive($value)
  *
  * WHMCS rates are relative to the base currency, so the conversion is:
  * amount / current rate * target rate. Results are rounded half-up to eight
- * decimal places, matching the maximum precision this legacy integration sends
- * to BTCPay.
+ * decimal places, preserving the currency conversion policy from v3.
  *
  * @param mixed $amount
  * @param mixed $currentRate
@@ -167,7 +206,7 @@ function bpNormalizeCurrencyCode($currency)
 function bpValidateBtcpayInvoiceContract(array $invoiceData, $contract, $requireStatus = true)
 {
     $contract = (array) $contract;
-    $requiredData = array('id', 'orderId', 'price', 'currency');
+    $requiredData = array('id', 'metadata', 'amount', 'currency');
     if ($requireStatus) {
         $requiredData[] = 'status';
     }
@@ -195,13 +234,15 @@ function bpValidateBtcpayInvoiceContract(array $invoiceData, $contract, $require
         return 'BTCPay invoice ID does not match the stored invoice contract.';
     }
 
-    if (!is_scalar($invoiceData['orderId']) ||
-        (string) $contract['whmcs_invoice_id'] !== (string) $invoiceData['orderId']) {
+    if (bpInvoiceOrderId($invoiceData) !== (string) $contract['whmcs_invoice_id']) {
         return 'BTCPay order ID does not match the stored WHMCS invoice ID.';
+    }
+    if (isset($invoiceData['type']) && $invoiceData['type'] !== 'Standard') {
+        return 'Only standard BTCPay invoices can pay a WHMCS invoice.';
     }
 
     try {
-        if (!bpDecimalEquals($contract['btcpay_amount'], $invoiceData['price'])) {
+        if (!bpDecimalEquals($contract['btcpay_amount'], $invoiceData['amount'])) {
             return 'BTCPay amount does not match the stored invoice contract.';
         }
         if (bpNormalizeCurrencyCode($contract['btcpay_currency']) !==
@@ -237,8 +278,8 @@ function bpValidateCreatedInvoiceData(
         return 'BTCPay invoice creation response is missing a valid invoice ID.';
     }
 
-    if (!array_key_exists('url', $invoiceData) || !is_string($invoiceData['url']) ||
-        trim($invoiceData['url']) === '') {
+    if (!array_key_exists('checkoutLink', $invoiceData) || !is_string($invoiceData['checkoutLink']) ||
+        trim($invoiceData['checkoutLink']) === '') {
         return 'BTCPay invoice creation response is missing a valid checkout URL.';
     }
 
@@ -319,6 +360,7 @@ function bpEnsureInvoiceContractTable()
                 $table->string('whmcs_currency', 16);
                 $table->string('btcpay_amount', 128);
                 $table->string('btcpay_currency', 16);
+                $table->string('connection_key', 64)->nullable();
                 $table->string('status', 32)->default('new');
                 $table->dateTime('created_at');
                 $table->dateTime('updated_at');
@@ -336,6 +378,17 @@ function bpEnsureInvoiceContractTable()
         }
     }
 
+    if (!$schema->hasColumn(BP_INVOICE_CONTRACT_TABLE, 'connection_key')) {
+        try {
+            $schema->table(BP_INVOICE_CONTRACT_TABLE, function ($table) {
+                $table->string('connection_key', 64)->nullable();
+            });
+        } catch (Exception $exception) {
+            if (!$schema->hasColumn(BP_INVOICE_CONTRACT_TABLE, 'connection_key')) {
+                throw new RuntimeException('Unable to upgrade the BTCPay invoice contract table. CREATE and ALTER permissions are required.');
+            }
+        }
+    }
     $ready = true;
 }
 
@@ -354,6 +407,7 @@ function bpStoreInvoiceContract(array $contract)
         'whmcs_currency',
         'btcpay_amount',
         'btcpay_currency',
+        'connection_key',
     ) as $field) {
         if (!array_key_exists($field, $contract)) {
             throw new InvalidArgumentException('Invoice contract is missing ' . $field . '.');
@@ -374,6 +428,7 @@ function bpStoreInvoiceContract(array $contract)
         'whmcs_currency' => bpNormalizeCurrencyCode($contract['whmcs_currency']),
         'btcpay_amount' => bpNormalizeDecimal($contract['btcpay_amount']),
         'btcpay_currency' => bpNormalizeCurrencyCode($contract['btcpay_currency']),
+        'connection_key' => $contract['connection_key'],
         'status' => 'new',
         'created_at' => $now,
         'updated_at' => $now,
@@ -460,23 +515,6 @@ function bpFindReusableInvoiceContracts(
 }
 
 /**
- * Never reverse a WHMCS payment automatically. A terminal invalid state that
- * arrives after crediting must instead be escalated for administrator review.
- *
- * @param mixed  $processedAt
- * @param string $newStatus
- * @return bool
- */
-function bpInvoiceStatusRequiresManualReview($processedAt, $newStatus)
-{
-    return $processedAt !== null && in_array(
-        strtolower(trim($newStatus)),
-        array('expired', 'invalid'),
-        true
-    );
-}
-
-/**
  * Run callback processing while holding a row lock on the invoice contract.
  *
  * @param string   $btcpayInvoiceId
@@ -488,6 +526,13 @@ function bpWithLockedInvoiceContract($btcpayInvoiceId, callable $callback)
     bpEnsureInvoiceContractTable();
 
     return Capsule::connection()->transaction(function () use ($btcpayInvoiceId, $callback) {
+        $known = bpFindInvoiceContract($btcpayInvoiceId);
+        if (!$known) {
+            throw new RuntimeException('No stored contract exists for this BTCPay invoice.');
+        }
+        // All paths lock WHMCS first, then the contract, including checkout reuse.
+        // This also serializes payments from two BTCPay invoices for the same bill.
+        bpGetWhmcsInvoiceForContract($known->whmcs_invoice_id, true);
         $contract = Capsule::table(BP_INVOICE_CONTRACT_TABLE)
             ->where('btcpay_invoice_hash', hash('sha256', (string) $btcpayInvoiceId))
             ->lockForUpdate()

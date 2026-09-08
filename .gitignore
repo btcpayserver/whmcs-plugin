@@ -24,6 +24,6 @@
 /build/docs/
 /build/logs/
 /vendor/
-composer.lock
+/modules/gateways/btcpay/vendor/
 composer.phar
 dist/

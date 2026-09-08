@@ -10,26 +10,25 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-      # Composer install not needed as long as we have the system/libraries/ directory committed.
-      #- name: Install Composer dependencies
-      #  uses: php-actions/composer@v6
-      #  with:
-      #    dev: no
-      #    php_version: 7.4
-      #    php_extensions: bcmath
-
-      - name: Create release artifact.
-        uses: thedoctor0/zip-release@master
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
         with:
-          type: 'zip'
-          filename: 'BTCPay-WHMCS-Plugin-${{ github.ref_name }}.zip'
-          path: 'modules/'
-          exclusions: '*.git* *.github* composer.* README.md GUIDE.md LICENSE'
+          php-version: '8.1'
+          extensions: bcmath, curl, json, mbstring, zip
+          tools: composer:v2
+          coverage: none
+      - name: Install and test
+        run: |
+          composer install --prefer-dist --no-interaction --no-progress
+          composer test
+      - name: Build and verify release ZIP
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/build-release.sh "$RELEASE_TAG"
       - name: Upload artifact to release page.
         uses: ncipollo/release-action@v1
         with:
-          artifacts: 'BTCPay-WHMCS-Plugin-${{ github.ref_name }}.zip'
-          removeArtifacts: true
+          artifacts: 'dist/BTCPay-WHMCS-Plugin-${{ github.ref_name }}.zip'
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
