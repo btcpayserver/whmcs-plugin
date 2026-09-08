@@ -32,11 +32,13 @@
         "test": [
             "@php tests/bp_invoice_contract_test.php",
             "@php tests/btcpay_security_test.php",
+            "@php tests/gateway_config_test.php",
             "@php tests/greenfield_test.php",
             "@php tests/webhook_setup_test.php",
             "@php tests/webhook_reregister_test.php",
             "@php tests/manage_page_test.php",
-            "@php tests/settings_save_test.php"
+            "@php tests/manage_setup_test.php",
+            "@php tests/admin_footer_hook_test.php"
         ],
         "test-integration": "@php tests/integration_test.php"
     },

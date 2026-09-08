@@ -39,7 +39,7 @@ function bpGetGatewaySettings(): array
     if ($saved !== null) {
         $connection = hash('sha256', bpNormalizeConfiguredBaseUrl($settings['btcpayUrl'] ?? null) . "\n" . trim($settings['storeId'] ?? ''));
         if (($saved['connection_key'] ?? '') !== $connection) {
-            throw new GatewayException('Webhook setup does not match the saved server and store. Save the settings again or retry webhook setup.', 503);
+            throw new GatewayException('Webhook setup does not match the saved server and store. Use Set up / repair webhook on the connection page.', 503);
         }
         $settings['webhookSecret'] = $saved['secret'] ?? '';
     }
@@ -72,7 +72,7 @@ function bpLockedGatewaySettings(): array
     return bpReadGatewaySettings();
 }
 
-/** Called only after an authorized settings save or an explicit admin retry. */
+/** Called only by an explicit, authenticated and CSRF-protected admin action. */
 function bpProvisionSavedWebhook(?callable $clientFactory = null): void
 {
     Capsule::connection()->transaction(function () use ($clientFactory) {
@@ -121,7 +121,7 @@ function bpConsumeWebhookReregisterConfirmation(array $post, array &$session): s
     return $confirmation['state'];
 }
 
-/** Explicit, confirmed admin action. Never called by the settings-save observer. */
+/** Explicit, confirmed admin action. Ordinary setup/repair never rotates a secret. */
 function bpReRegisterSavedWebhook(string $expectedState, ?callable $clientFactory = null): string
 {
     if (Capsule::connection()->transactionLevel() !== 0) {
@@ -188,46 +188,23 @@ function bpRecordWebhookSetupFailure(Throwable $exception): void
     error_log('BTCPay webhook setup: ' . $message);
 }
 
-/** WHMCS has no documented GatewayConfigSave hook. Observe actual model saves. */
-function bpObserveGatewaySettingsSaves(callable $defer): void
+function bpCanManageGatewaySettings(): bool
 {
-    if (!GatewaySetting::getEventDispatcher()) {
-        throw new RuntimeException('Gateway settings model events are unavailable.');
+    try {
+        $admin = \WHMCS\User\Admin::getAuthenticatedUser();
+        // WHMCS permission names must match the native administrator role labels.
+        return $admin && $admin->isAllowedToAuthenticate() && $admin->hasPermission('Configure Payment Gateways');
+    } catch (Throwable $exception) {
+        return false;
     }
-    $scheduled = false;
-    GatewaySetting::saved(function ($setting) use (&$scheduled, $defer) {
-        if ($scheduled || $setting->gateway !== 'btcpay' ||
-            in_array($setting->setting, ['webhookData', 'webhookSetupStatus'], true) ||
-            !defined('ADMINAREA') || !ADMINAREA || ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' ||
-            basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'configgateways.php') {
-            return;
-        }
-        try {
-            $admin = \WHMCS\User\Admin::getAuthenticatedUser();
-            $authorized = $admin && $admin->isAllowedToAuthenticate() && $admin->hasPermission('Manage Payment Gateways');
-        } catch (Throwable $exception) {
-            $authorized = false;
-        }
-        if (!$authorized) {
-            return;
-        }
-        $scheduled = true;
-        // Wait for ALL fields to be saved, including when WHMCS redirects/exits.
-        // Never trust posted/masked credentials or write during a config-page GET.
-        $defer(function () {
-            $lastError = error_get_last();
-            if (($lastError && in_array($lastError['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) ||
-                http_response_code() >= 400) {
-                return;
-            }
-            try {
-                if (Capsule::connection()->transactionLevel() !== 0) {
-                    return;
-                }
-                bpProvisionSavedWebhook();
-            } catch (Throwable $exception) {
-                bpRecordWebhookSetupFailure($exception);
-            }
-        });
-    });
+}
+
+/** Shared by the explicit settings button and the administrator management page. */
+function bpManagementCsrfToken(): string
+{
+    if (!isset($_SESSION['btcpay_manage_token']) || !is_string($_SESSION['btcpay_manage_token']) ||
+        $_SESSION['btcpay_manage_token'] === '') {
+        $_SESSION['btcpay_manage_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['btcpay_manage_token'];
 }

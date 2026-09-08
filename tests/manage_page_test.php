@@ -8,9 +8,10 @@ $directory = sys_get_temp_dir() . '/btcpay-manage-' . bin2hex(random_bytes(8));
 mkdir($directory . '/modules/gateways/btcpay', 0700, true);
 mkdir($directory . '/includes', 0700);
 try {
-    foreach (['init.php', 'includes/gatewayfunctions.php', 'includes/invoicefunctions.php'] as $file) {
+    foreach (['includes/gatewayfunctions.php', 'includes/invoicefunctions.php'] as $file) {
         file_put_contents($directory . '/' . $file, '<?php');
     }
+    copy(__DIR__ . '/fixtures/manage_whmcs_init.php', $directory . '/init.php');
     copy(__DIR__ . '/../modules/gateways/btcpay/manage.php', $directory . '/modules/gateways/btcpay/manage.php');
     file_put_contents($directory . '/modules/gateways/btcpay/bootstrap.php', '<?php require ' .
         var_export(realpath(__DIR__ . '/../modules/gateways/btcpay/bootstrap.php'), true) . ';');
@@ -19,7 +20,10 @@ try {
             class Admin {
                 public static function getAuthenticatedUser() { return $GLOBALS['scenario'] === 'anonymous' ? null : new self(); }
                 public function isAllowedToAuthenticate() { return $GLOBALS['scenario'] !== 'disabled'; }
-                public function hasPermission($permission) { return $permission === 'Manage Payment Gateways' && $GLOBALS['scenario'] !== 'no_permission'; }
+                public function hasPermission($permission) {
+                    $allowed = $GLOBALS['scenario'] === 'bogus_permission' ? 'Manage Payment Gateways' : 'Configure Payment Gateways';
+                    return $permission === $allowed && $GLOBALS['scenario'] !== 'no_permission';
+                }
             }
         }
         namespace WHMCS\Module {
@@ -56,20 +60,22 @@ try {
             if ($scenario === 'replayed') { unset($_SESSION['btcpay_webhook_reregister']); }
             register_shutdown_function(function () {
                 echo "\nHTTP: ", http_response_code() ?: 200, "\nMUTATION: ", empty($GLOBALS['unexpectedMutation']) ? 'no' : 'yes';
+                echo "\nBOOTSTRAP: ", !empty($GLOBALS['managementBootstrapPassed']) ? 'normal' : 'failed';
             });
             require $argv[1] . '/modules/gateways/btcpay/manage.php';
         }
         PHP;
-    foreach (['get', 'damaged_record', 'anonymous', 'disabled', 'no_permission', 'missing_csrf', 'missing_confirmation', 'expired', 'replayed'] as $scenario) {
+    foreach (['get', 'damaged_record', 'anonymous', 'disabled', 'no_permission', 'bogus_permission', 'missing_csrf', 'missing_confirmation', 'expired', 'replayed'] as $scenario) {
         $process = proc_open([PHP_BINARY, '-r', $probe, $directory, $scenario],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR], $pipes);
         fclose($pipes[0]);
         $output = stream_get_contents($pipes[1]);
         fclose($pipes[1]);
         testSame(0, proc_close($process), $scenario . ': endpoint exits cleanly');
+        testSame(true, str_contains($output, 'BOOTSTRAP: normal'), $scenario . ': uses normal bootstrap outside the admin directory');
         testSame(true, str_contains($output, 'MUTATION: no'), $scenario . ': no database or API mutation');
         testSame(false, str_contains($output, 'NEVER-EXPOSE'), $scenario . ': does not expose credentials or secrets');
-        if (in_array($scenario, ['anonymous', 'disabled', 'no_permission', 'missing_csrf'], true)) {
+        if (in_array($scenario, ['anonymous', 'disabled', 'no_permission', 'bogus_permission', 'missing_csrf'], true)) {
             testSame(true, str_contains($output, 'HTTP: 403'), $scenario . ': access is forbidden');
             testSame(false, str_contains($output, 'value="reregister"'), $scenario . ': no replacement form');
         } else {

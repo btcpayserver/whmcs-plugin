@@ -45,7 +45,7 @@ testSame(true, $hooks['HOOK-1']['automaticRedelivery'], 'Enables automatic redel
 testSame(true, $hooks['HOOK-1']['enabled'], 'Enables webhook');
 $hooks['HOOK-1']['enabled'] = false;
 $again = $client->provisionWebhook($url, $saved);
-testSame($saved, $again, 'Repeat saves reuse the ID and secret');
+testSame($saved, $again, 'Repeat setup/repair reuses the ID and secret');
 testSame(1, $creations, 'Does not create duplicate webhooks');
 testSame(true, $hooks['HOOK-1']['enabled'], 'Repairs a disabled owned webhook');
 $movedUrl = 'https://billing.example.test/new-whmcs/modules/gateways/callback/btcpay.php';
@@ -82,4 +82,4 @@ $insufficient = new FixtureHttp(fn () => ['permissions' => ['btcpay.store.cancre
     'btcpay.store.canviewinvoices:STORE-1', Greenfield::WEBHOOK_PERMISSION . ':STORE-2']]);
 testThrows(fn () => (new Greenfield($settings, $insufficient, false))->checkConnection(true), 'Requires webhook permission in the correct store', 503);
 testSame(true, Greenfield::grants(['btcpay.store.canmodifystoresettings:STORE-1'], Greenfield::WEBHOOK_PERMISSION, 'STORE-1'), 'Accepts an implied webhook permission');
-echo "Automatic webhook setup, permissions, secret preservation and recovery tests passed.\n";
+echo "Webhook provisioning, permissions, secret preservation and recovery tests passed.\n";

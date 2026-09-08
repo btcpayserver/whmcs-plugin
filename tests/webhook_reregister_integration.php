@@ -33,8 +33,8 @@ $requestCount = count($replacementHttp->requests);
 testThrows(fn () => bpReRegisterSavedWebhook($confirmed, $replacementFactory), 'Rejects stale or concurrent confirmation', 409);
 testSame($requestCount, count($replacementHttp->requests), 'Stale confirmation cannot make remote calls');
 bpProvisionSavedWebhook($replacementFactory);
-testSame(1, $replacementHttp->creations, 'Normal save after replacement does not rotate again');
-testSame('generated-secret-1', bpGetGatewaySettings()['webhookSecret'], 'Normal save retains the rotated secret');
+testSame(1, $replacementHttp->creations, 'Setup/repair after replacement does not rotate again');
+testSame('generated-secret-1', bpGetGatewaySettings()['webhookSecret'], 'Setup/repair retains the rotated secret');
 testThrows(fn () => Capsule::connection()->transaction(fn () => bpReRegisterSavedWebhook(
     bpWebhookStateFingerprint(bpReadGatewaySettings()), $replacementFactory)), 'Requires its own commit boundary', 503);
 

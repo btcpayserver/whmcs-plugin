@@ -515,23 +515,6 @@ function bpFindReusableInvoiceContracts(
 }
 
 /**
- * Never reverse a WHMCS payment automatically. A terminal invalid state that
- * arrives after crediting must instead be escalated for administrator review.
- *
- * @param mixed  $processedAt
- * @param string $newStatus
- * @return bool
- */
-function bpInvoiceStatusRequiresManualReview($processedAt, $newStatus)
-{
-    return $processedAt !== null && in_array(
-        strtolower(trim($newStatus)),
-        array('expired', 'invalid'),
-        true
-    );
-}
-
-/**
  * Run callback processing while holding a row lock on the invoice contract.
  *
  * @param string   $btcpayInvoiceId

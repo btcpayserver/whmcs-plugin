@@ -180,20 +180,4 @@ bpTestAssertNotNull(
     'Rejects a WHMCS invoice currency changed after checkout creation.'
 );
 
-bpTestAssertSame(
-    true,
-    bpInvoiceStatusRequiresManualReview('2026-08-14 12:00:00', 'invalid'),
-    'Requires manual review when a credited transaction becomes invalid.'
-);
-bpTestAssertSame(
-    false,
-    bpInvoiceStatusRequiresManualReview(null, 'invalid'),
-    'Does not report an uncredited invalid invoice as a post-credit invalidation.'
-);
-bpTestAssertSame(
-    true,
-    bpInvoiceStatusRequiresManualReview('2026-08-14 12:00:00', 'expired'),
-    'Requires review when a credited transaction unexpectedly expires.'
-);
-
 echo 'Invoice contract tests passed (' . $assertions . ' assertions).' . PHP_EOL;

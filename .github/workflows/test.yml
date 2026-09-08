@@ -30,6 +30,10 @@ jobs:
       - run: composer validate --strict
       - run: composer install --prefer-dist --no-interaction --no-progress
       - run: composer test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tests/webhook_setup_ui_test.js
       - run: composer test-integration
         env:
           BTCPAY_TEST_DB_HOST: 127.0.0.1

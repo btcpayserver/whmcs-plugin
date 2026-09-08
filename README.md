@@ -6,9 +6,13 @@ Version 4 uses the official BTCPay Server Greenfield PHP library and signed webh
 Download the attached release ZIP for a ready-to-upload installation; dependencies
 are included. Source checkouts require `composer install`.
 
-Upgrading from version 3 requires a Greenfield API key and store ID. Saving the
-settings registers a webhook and securely stores its BTCPay-generated secret.
-Upload both `modules/` and `includes/` from the release ZIP.
+Upgrading from version 3 requires a Greenfield API key and store ID. Save the
+settings and wait for WHMCS to confirm success, then click **Set up / repair
+webhook** beside **Manual Webhook Secret** or on the connection/recovery page.
+This separate action registers the webhook and securely stores its
+BTCPay-generated secret internally; saving settings alone does not register it.
+Upload both `modules/` and `includes/` from the release ZIP and reload the gateway
+settings page.
 See the [installation and upgrade guide](GUIDE.md), including recovery of payments
 whose legacy notifications were missed. The legacy integration no longer works
 with BTCPay Server 2.4.4 or later.

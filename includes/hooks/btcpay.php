@@ -1,18 +1,16 @@
 <?php
 
-// This file must be uploaded alongside modules/. No public endpoint is added.
-if (!defined('WHMCS') || !defined('ADMINAREA') || !ADMINAREA ||
-    ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' ||
-    basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'configgateways.php') {
+// Overwrite older experimental save hooks with this render-only hook.
+// No settings-save interception, shutdown work, database writes or API calls.
+if (!defined('WHMCS') || !defined('ADMINAREA') || !ADMINAREA || !function_exists('add_hook')) {
     return;
 }
-$btcpayBootstrap = __DIR__ . '/../../modules/gateways/btcpay/bootstrap.php';
-if (!is_file($btcpayBootstrap)) {
-    return;
-}
-require_once $btcpayBootstrap;
-try {
-    bpObserveGatewaySettingsSaves('register_shutdown_function');
-} catch (Throwable $exception) {
-    error_log('BTCPay: unable to observe gateway settings saves. Use the connection page to retry webhook setup.');
-}
+add_hook('AdminAreaFooterOutput', 1, function ($vars) {
+    // The handler only reacts to our own explicit button. Delegation also
+    // supports gateway forms inserted by AJAX, without relying on WHMCS routes.
+    $script = __DIR__ . '/../../modules/gateways/btcpay/webhook-setup.js';
+    if (!is_readable($script)) {
+        return '';
+    }
+    return '<script>' . file_get_contents($script) . '</script>';
+});

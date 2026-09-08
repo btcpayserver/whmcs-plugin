@@ -39,7 +39,12 @@ $setupHttp = new FixtureHttp(function ($method, $url, $body) use (&$remoteWebhoo
     return str_ends_with($url, '/webhooks') ? ($remoteWebhook ? [$remoteWebhook] : []) : $remoteWebhook;
 });
 $factory = fn ($settings) => new BTCPayWHMCS\Greenfield($settings, $setupHttp, false);
+
+// The explicit setup action reads persisted settings through WHMCS's model;
+// it does not depend on how the native settings form saves them.
 bpProvisionSavedWebhook($factory);
+testSame('token test-greenfield-key', $setupHttp->requests[0]['headers']['Authorization'], 'Explicit setup uses persisted, decrypted credentials');
+
 $configured = bpGetGatewaySettings();
 testSame('btcpay-generated-test-secret', $configured['webhookSecret'], 'Payment paths use the generated secret');
 $rawStored = Illuminate\Database\Capsule\Manager::table('tblpaymentgateways')->where('setting', 'webhookData')->value('value');
@@ -49,7 +54,7 @@ testSame('', bpReadGatewaySettings()['webhookSecret'], 'Generated secret is not 
 bpWriteGatewaySetting('webhookSecret', 'stale-form-secret');
 bpProvisionSavedWebhook($factory);
 testSame('btcpay-generated-test-secret', bpGetGatewaySettings()['webhookSecret'], 'Stale forms cannot overwrite the managed secret');
-testSame(1, count(array_filter($setupHttp->requests, fn ($request) => $request['method'] === 'POST')), 'Repeat saves create only one webhook');
+testSame(1, count(array_filter($setupHttp->requests, fn ($request) => $request['method'] === 'POST')), 'Repeat setup creates only one webhook');
 $beforeFailure = bpReadGatewaySettings()['webhookData'];
 testThrows(fn () => bpProvisionSavedWebhook(fn ($settings) => new BTCPayWHMCS\Greenfield($settings,
     new FixtureHttp(fn () => new BTCPayServer\Http\Response(403, 'secret-error-response', [])), false)), 'Setup failures propagate safely', 502);
@@ -62,4 +67,4 @@ IntegrationGatewaySetting::flushEventListeners();
 require __DIR__ . '/webhook_reregister_integration.php';
 bpWriteGatewaySetting('storeId', 'STORE-2');
 testThrows(fn () => bpGetGatewaySettings(), 'Changed store cannot use the previous webhook secret', 503);
-echo "MySQL webhook setup persistence, repeat saves and failure recovery tests passed.\n";
+echo "MySQL explicit webhook setup persistence, repeated setup and failure recovery tests passed.\n";

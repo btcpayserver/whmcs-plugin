@@ -97,7 +97,15 @@ testSame(true, bpPaymentDecision($late, testContract(), $invoice)['manual_review
 $processed = array_replace(testContract(), ['processed_at' => '2026-09-07 12:00:00', 'status' => 'settled']);
 testSame('duplicate_callback', bpPaymentDecision($settled, $processed, null)['outcome'], 'A credited invoice is not credited twice');
 testSame('settled', bpPaymentDecision(testInvoice(), $processed, null)['status'], 'Does not regress a credited invoice to awaiting payment');
-testSame(true, bpPaymentDecision(array_replace(testInvoice(), ['status' => 'Invalid']), $processed, null)['manual_review'], 'Flags post-credit invalidation even after WHMCS invoice deletion');
+foreach (['Expired', 'Invalid'] as $terminal) {
+    $terminalInvoice = array_replace(testInvoice(), ['status' => $terminal]);
+    testSame(true, bpPaymentDecision($terminalInvoice, $processed, null)['manual_review'],
+        'Flags post-credit ' . $terminal . ' even after WHMCS invoice deletion');
+    testSame(false, bpPaymentDecision($terminalInvoice, testContract(), $invoice)['manual_review'],
+        'Unpaid ' . $terminal . ' without a payment does not require post-credit review');
+    testSame(false, bpPaymentDecision($terminalInvoice, array_replace($processed, ['status' => strtolower($terminal)]), null)['manual_review'],
+        'Repeated ' . $terminal . ' does not flag the same post-credit transition again');
+}
 testThrows(fn () => bpPaymentDecision(array_replace($settled, ['amount' => '0.01']), testContract(), $invoice), 'Rejects changed BTCPay amount', 409);
 testThrows(fn () => bpPaymentDecision($settled, testContract(), array_replace($invoice, ['total' => '99'])), 'Rejects changed WHMCS amount', 409);
 testThrows(fn () => bpPaymentDecision($settled, testContract(), array_replace($invoice, ['paymentmethod' => 'other'])), 'Rejects changed gateway', 409);

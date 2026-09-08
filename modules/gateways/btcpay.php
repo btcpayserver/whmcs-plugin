@@ -61,7 +61,7 @@ function btcpay_config()
         'webhookSecret' => array(
             'FriendlyName' => 'Manual Webhook Secret (optional)',
             'Type' => 'password',
-            'Description' => 'Normally leave blank: saving settings registers the webhook automatically and securely stores the BTCPay-generated secret. Only enter a secret to adopt an existing manual webhook. The generated secret is never displayed here.',
+            'Description' => 'Normally leave blank. Save changes and wait for WHMCS to confirm success, then click Set up / repair webhook. Only enter a secret to adopt an existing manual webhook. The BTCPay-generated secret is stored internally and never displayed here.',
         ),
         'btcpayUrl' => array(
             'FriendlyName' => 'BTCPay Server URL',
@@ -102,11 +102,29 @@ function btcpay_config()
         $manageUrl = bpBuildTrustedUrl(bpGetConfiguredWhmcsSystemUrl(), 'modules/gateways/btcpay/manage.php');
         $configarray['webhookSecret']['Description'] .= ' <a href="' .
             bpEscapeHtmlAttribute($manageUrl) . '" target="_blank" rel="noopener">Connection, webhook setup status and invoice recovery</a>.';
-        if (defined('ADMINAREA') && ADMINAREA) {
-            $status = \WHMCS\Module\GatewaySetting::where('gateway', 'btcpay')->where('setting', 'webhookSetupStatus')->first();
-            if ($status) {
-                $configarray['webhookSecret']['Description'] .= '<br>' . bpEscapeHtmlAttribute($status->value);
+        if (defined('ADMINAREA') && ADMINAREA && bpCanManageGatewaySettings()) {
+            $statusMessage = 'Uses saved settings only. Saving this form does not register a webhook.';
+            try {
+                $status = \WHMCS\Module\GatewaySetting::where('gateway', 'btcpay')->where('setting', 'webhookSetupStatus')->first();
+                if ($status && is_string($status->value) && $status->value !== '') {
+                    $statusMessage = $status->value;
+                }
+            } catch (Throwable $exception) {
+                // An optional status read must not hide the setup/recovery control.
+                // Never expose database exceptions or their bindings here.
+                $statusMessage = 'Unable to read webhook setup status. Open the connection page for details or retry setup.';
             }
+            $configarray['webhookSecret']['Description'] .= '<br><span data-btcpay-webhook-controls>' .
+                '<button type="button" class="btn btn-default" data-btcpay-webhook-setup data-setup-url="' .
+                bpEscapeHtmlAttribute($manageUrl) . '" data-setup-token="' . bpEscapeHtmlAttribute(bpManagementCsrfToken()) .
+                '">Set up / repair webhook</button> ' .
+                '<span data-btcpay-webhook-result class="' .
+                (str_starts_with($statusMessage, 'Webhook ready.') ? 'text-success' : '') .
+                '" style="display:block;margin-top:8px;font-weight:600" role="status" aria-live="polite" aria-atomic="true">' .
+                bpEscapeHtmlAttribute($statusMessage) .
+                '</span></span><noscript> Open the connection page above and use Set up / repair webhook there.</noscript>';
+        } elseif (defined('ADMINAREA') && ADMINAREA) {
+            $configarray['webhookSecret']['Description'] .= ' Webhook setup requires an authenticated administrator with Configure Payment Gateways permission.';
         }
     } catch (Throwable $exception) {
         // Configuration remains renderable before WHMCS has a SystemURL.
