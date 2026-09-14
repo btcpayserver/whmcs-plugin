@@ -81,6 +81,7 @@ $form = btcpay_link(array(
     'systemurl' => 'https://billing.example.test/whmcs/',
     'langpaynow' => 'Pay"><script>button-xss</script>&\'' . "\xC3\x28",
     'clientdetails' => $clientDetails,
+    'sendCustomerEmail' => 'on',
 ));
 
 bpSecurityAssertContains(
@@ -102,6 +103,8 @@ bpSecurityAssertNotContains('<script>', $form, 'Does not emit executable client 
 bpSecurityAssertNotContains('systemURL', $form, 'Does not post a client-controlled system URL.');
 bpSecurityAssertNotContains('ipnURL', $form, 'Does not post a client-controlled callback URL.');
 bpSecurityAssertNotContains('buyerName', $form, 'Does not send browser-controlled buyer metadata.');
+bpSecurityAssertNotContains('buyerEmail', $form, 'Does not post customer email even when sharing is enabled.');
+bpSecurityAssertNotContains('sendCustomerEmail', $form, 'Does not post the administrator email-sharing setting.');
 foreach ($clientFields as $field) {
     bpSecurityAssertNotContains(
         $field . '&quot;',
@@ -128,7 +131,6 @@ foreach (array(
     'buyerCity',
     'buyerState',
     'buyerZip',
-    'buyerEmail',
     'buyerPhone',
 ) as $buyerOption) {
     bpSecurityAssertNotContains(
@@ -141,6 +143,13 @@ bpSecurityAssertNotContains('defaultgateway', $callbackSource, 'Does not mutate 
 
 $gatewayConfig = btcpay_config();
 bpSecurityAssertSame('password', $gatewayConfig['apiKey']['Type'], 'Renders the API key as a password setting.');
+bpSecurityAssertSame('yesno', $gatewayConfig['sendCustomerEmail']['Type'], 'Provides a customer email opt-in checkbox.');
+bpSecurityAssertSame('', $gatewayConfig['sendCustomerEmail']['Default'], 'Customer email sharing starts unchecked.');
+bpSecurityAssertContains('Warning:', $gatewayConfig['sendCustomerEmail']['Description'], 'Warns before enabling email sharing.');
+bpSecurityAssertContains('sends the customer\'s email address to BTCPay Server',
+    $gatewayConfig['sendCustomerEmail']['Description'], 'Explains which customer data is sent and its destination.');
+bpSecurityAssertContains('may expose this customer data if the BTCPay invoice ID or checkout link is leaked',
+    $gatewayConfig['sendCustomerEmail']['Description'], 'Explains the customer data exposure risk from leaked invoice identifiers.');
 bpSecurityAssertSame(
     'yesno',
     $gatewayConfig['callbackDiagnostics']['Type'],

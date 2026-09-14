@@ -98,13 +98,16 @@ The plugin does not need unrestricted access, store-settings management, wallet 
    - **Store default:** use the speed policy configured in BTCPay.
 5. Optional: enter a **BTCPay Server Tor URL**. It is used for browser checkout when WHMCS is accessed through its .onion hostname. Server-to-server API calls still use the main BTCPay URL.
 6. Optional: set a **Redirect URL**. With it blank, the customer returns to their WHMCS invoice page. Returning to WHMCS does not itself mark an invoice paid.
-7. Click WHMCS's **Save Changes** button and **wait for WHMCS to confirm that the settings were saved successfully**. This saves the credentials only: it does not contact BTCPay or register a webhook. The setup action below uses saved settings, not unsaved values still in the form.
-8. Click **Set up / repair webhook** beside **Manual Webhook Secret**, then wait for the green **Webhook ready** message below the button. The button sends a separate request to the plugin's authenticated WHMCS endpoint. The server reads the saved credentials, checks the three required permissions, and registers an enabled webhook with automatic redelivery. BTCPay generates the secret; the webhook ID, URL, server/store identity and secret are stored through WHMCS's encrypted gateway-settings model, separately from the editable form fields. Only the setup status is returned to the browser; **Manual Webhook Secret stays blank** for a managed webhook. The saved success message remains green after reloading and on the connection/recovery page. It reports the last setup result, not a live webhook-delivery check.
-9. If JavaScript is unavailable or the inline button does not work, follow **Connection, webhook setup status and invoice recovery** beside the manual-secret setting and click **Set up / repair webhook** on that page. This performs the same operation without relying on the gateway form's JavaScript. Alternatively, while logged in as an administrator, open:
-   ```text
-   https://your-whmcs.example/modules/gateways/btcpay/manage.php
-   ```
-10. On the connection/recovery page, confirm **Webhook ready** and click **Check connection**. The connection check works even before webhook setup; it checks the saved key's permissions and access to the selected store without creating an invoice or webhook. It does not test inbound webhook delivery: complete a small payment to check that separately.
+7. Optional: enable **Send Customer Email** to provide the invoice owner's WHMCS email address as `buyerEmail` on new BTCPay invoices. This is **disabled by default**, including after an upgrade, and lets BTCPay store email rules use the address. Configure those rules in BTCPay if you want it to send buyer emails. **Warning:** enabling this sends the customer's email address to BTCPay Server and may expose this customer data if the BTCPay invoice ID or checkout link is leaked.
+8. Click WHMCS's **Save Changes** button and **wait for WHMCS to confirm that the settings were saved successfully**. This saves the gateway settings only: it does not contact BTCPay or register a webhook. The setup action below uses saved settings, not unsaved values still in the form.
+9. Click **Set up / repair webhook** beside **Manual Webhook Secret**, then wait for the green **Webhook ready** message below the button. The button sends a separate request to the plugin's authenticated WHMCS endpoint. The server reads the saved credentials, checks the three required permissions, and registers an enabled webhook with automatic redelivery. BTCPay generates the secret; the webhook ID, URL, server/store identity and secret are stored through WHMCS's encrypted gateway-settings model, separately from the editable form fields. Only the setup status is returned to the browser; **Manual Webhook Secret stays blank** for a managed webhook. The saved success message remains green after reloading and on the connection/recovery page. It reports the last setup result, not a live webhook-delivery check.
+10. If JavaScript is unavailable or the inline button does not work, follow **Connection, webhook setup status and invoice recovery** beside the manual-secret setting and click **Set up / repair webhook** on that page. This performs the same operation without relying on the gateway form's JavaScript. Alternatively, while logged in as an administrator, open:
+
+    ```text
+    https://your-whmcs.example/modules/gateways/btcpay/manage.php
+    ```
+
+11. On the connection/recovery page, confirm **Webhook ready** and click **Check connection**. The connection check works even before webhook setup; it checks the saved key's permissions and access to the selected store without creating an invoice or webhook. It does not test inbound webhook delivery: complete a small payment to check that separately.
 
 Both webhook setup entry points require a logged-in administrator with **Configure Payment Gateways** permission in their WHMCS administrator role. This is the [native WHMCS permission name](https://developers.whmcs.com/api-reference/getadmindetails/), separate from the BTCPay API-key permissions. Incomplete uploads still allow the gateway settings page to open; reinstall the complete ZIP if dependencies are missing. After changing the saved API key, server/store or WHMCS System URL, run **Set up / repair webhook** again. Never share an API key or webhook secret in screenshots or troubleshooting logs.
 
@@ -168,7 +171,9 @@ After testing a new checkout and verifying that WHMCS records its settlement, en
 
 ## Payment behavior
 
-The gateway creates an invoice for the amount determined by WHMCS, applying its configured currency conversion with decimal arithmetic. Repeated submissions reuse a matching active invoice. Buyer profile details are not sent to BTCPay.
+The gateway creates an invoice for the amount determined by WHMCS, applying its configured currency conversion with decimal arithmetic. Repeated submissions reuse a matching active invoice. Buyer profile details are not sent to BTCPay by default. If **Send Customer Email** is enabled, only the invoice owner's saved WHMCS email address is included in new invoices, when non-empty; names, addresses and phone numbers are not sent.
+
+Changing **Send Customer Email** affects newly created BTCPay invoices. Reusing an existing checkout does not add or remove its metadata. Disabling the setting does not remove email addresses already sent to BTCPay.
 
 `Processing` means a full payment has been detected but has not yet settled under the configured speed policy. Only explicit `Settled` status credits WHMCS. Lightning normally settles immediately.
 

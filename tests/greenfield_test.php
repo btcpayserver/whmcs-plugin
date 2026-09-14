@@ -18,10 +18,45 @@ testSame('10.123456789123456789', $body['amount'], 'Does not round monetary stri
 testSame('42', $body['metadata']['orderId'], 'Sends searchable order metadata');
 testSame('whmcs', $body['metadata']['integration'], 'Identifies early webhook deliveries for retry');
 testSame(false, isset($body['notificationURL']), 'Store webhooks replace per-invoice IPNs');
-testSame(false, isset($body['metadata']['buyerEmail']), 'Does not disclose buyer profiles');
+testSame(false, isset($body['metadata']['buyerEmail']), 'Does not disclose customer email by default');
 testSame('MediumSpeed', $body['checkout']['speedPolicy'], 'Preserves one-confirmation policy');
 testSame(0, $body['checkout']['paymentTolerance'], 'Does not inherit underpayment tolerance');
 testSame(true, $body['checkout']['redirectAutomatically'], 'Returns the browser to WHMCS');
+
+// Inspect the SDK's actual request body: even a supplied email requires a saved opt-in.
+foreach ([
+    'missing' => [],
+    'blank' => ['sendCustomerEmail' => ''],
+    'off' => ['sendCustomerEmail' => 'off'],
+    'false' => ['sendCustomerEmail' => false],
+    'zero' => ['sendCustomerEmail' => '0'],
+    'unknown' => ['sendCustomerEmail' => 'unexpected'],
+    'on' => ['sendCustomerEmail' => 'on'],
+    'true' => ['sendCustomerEmail' => true],
+] as $scenario => $settings) {
+    $emailHttp = new FixtureHttp();
+    $emailClient = new Greenfield(array_replace(testSettings(), $settings), $emailHttp);
+    $emailClient->createInvoice(42, '10.123456789123456789', 'USD',
+        'https://billing.example.test/viewinvoice.php?id=42',
+        'https://billing.example.test/viewinvoice.php?id=42', 'medium', ' buyer@example.test ');
+    $expectedBody = $body;
+    if (in_array($scenario, ['on', 'true'], true)) {
+        $expectedBody['metadata']['buyerEmail'] = 'buyer@example.test';
+    }
+    testSame($expectedBody, json_decode($emailHttp->requests[0]['body'], true, 32, JSON_THROW_ON_ERROR),
+        $scenario . ': only an explicit opt-in adds buyerEmail; checkout and payment metadata are preserved');
+}
+
+foreach ([null, '', '   '] as $email) {
+    $emailHttp = new FixtureHttp();
+    $emailClient = new Greenfield(array_replace(testSettings(), ['sendCustomerEmail' => 'on']), $emailHttp);
+    $emailClient->createInvoice(42, '10', 'USD', 'https://billing.example.test/viewinvoice.php?id=42',
+        'https://billing.example.test/viewinvoice.php?id=42', 'medium', $email);
+    $emailBody = json_decode($emailHttp->requests[0]['body'], true, 32, JSON_THROW_ON_ERROR);
+    testSame(false, array_key_exists('buyerEmail', $emailBody['metadata']),
+        'An enabled setting with no customer email still creates an invoice without buyerEmail');
+}
+
 foreach (['low' => 'LowSpeed', 'lowmedium' => 'LowMediumSpeed', 'high' => 'HighSpeed', 'default' => null] as $speed => $expected) {
     testSame($expected, Greenfield::speedPolicy($speed), 'Maps speed ' . $speed);
 }

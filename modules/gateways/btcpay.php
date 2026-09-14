@@ -91,6 +91,12 @@ function btcpay_config()
             'Default'      => 'medium',
             'Description'  => 'Medium is recommended. High accepts unconfirmed on-chain payments. Existing saved settings are retained on upgrade.',
         ),
+        'sendCustomerEmail' => array(
+            'FriendlyName' => 'Send Customer Email',
+            'Type' => 'yesno',
+            'Default' => '',
+            'Description' => 'Disabled by default. Tick to provide the customer email for BTCPay store email rules on new invoices. <strong>Warning:</strong> Enabling this sends the customer\'s email address to BTCPay Server and may expose this customer data if the BTCPay invoice ID or checkout link is leaked.',
+        ),
         'callbackDiagnostics' => array(
             'FriendlyName' => 'Callback Diagnostics',
             'Type' => 'yesno',
@@ -155,7 +161,7 @@ function btcpay_link($params)
         die('[ERROR] In modules/gateways/btcpay.php::btcpay_link() function: Invalid gateway configuration.');
     }
 
-    // Buyer metadata is loaded from WHMCS by the endpoint. The browser only
+    // Optional customer email is loaded from WHMCS by the endpoint. The browser only
     // identifies the invoice, whose ownership is independently checked there.
     $post = array('invoiceId' => $params['invoiceid']);
 

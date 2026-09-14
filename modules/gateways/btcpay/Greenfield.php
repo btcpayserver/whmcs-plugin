@@ -31,6 +31,7 @@ class Greenfield
     public string $baseUrl;
     public string $storeId;
     private string $secret;
+    private bool $sendCustomerEmail;
 
     public function __construct(array $settings, ?ClientInterface $http = null, bool $requireWebhook = true)
     {
@@ -43,6 +44,7 @@ class Greenfield
         $key = self::setting($settings, 'apiKey', 'Greenfield API Key');
         $this->secret = $requireWebhook || !empty($settings['webhookSecret'])
             ? self::setting($settings, 'webhookSecret', 'Webhook Secret') : '';
+        $this->sendCustomerEmail = \bpGatewayOptionEnabled($settings['sendCustomerEmail'] ?? null);
         if (preg_match('/[\x00-\x20\x7f]/', $key)) {
             throw new GatewayException('Greenfield API Key is invalid.', 503);
         }
@@ -312,7 +314,15 @@ class Greenfield
         });
     }
 
-    public function createInvoice(int $id, string $amount, string $currency, string $returnUrl, string $orderUrl, $speed): array
+    public function createInvoice(
+        int $id,
+        string $amount,
+        string $currency,
+        string $returnUrl,
+        string $orderUrl,
+        $speed,
+        ?string $buyerEmail = null
+    ): array
     {
         if ($this->secret === '') {
             throw new GatewayException('Webhook setup is incomplete. Save the BTCPay gateway settings again.', 503);
@@ -323,8 +333,10 @@ class Greenfield
         $options->setRedirectAutomatically(true);
         // A WHMCS invoice must be paid in full. Do not inherit a store's underpayment tolerance.
         $options->setPaymentTolerance(0);
+        // Enforce the saved opt-in at the API boundary, even if a caller supplies an email.
+        $buyerEmail = $this->sendCustomerEmail ? trim($buyerEmail ?? '') : null;
         $result = $this->request(fn () => $this->invoices->createInvoice(
-            $this->storeId, $currency, PreciseNumber::parseString($amount), (string) $id, null,
+            $this->storeId, $currency, PreciseNumber::parseString($amount), (string) $id, $buyerEmail,
             ['orderUrl' => $orderUrl, 'itemDesc' => 'WHMCS invoice #' . $id, 'integration' => 'whmcs'],
             $options
         ));
