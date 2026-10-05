@@ -220,10 +220,18 @@ try {
             );
         }
 
+        $buyerEmail = null;
+        if (bpGatewayOptionEnabled($GATEWAY['sendCustomerEmail'] ?? null)) {
+            // Use the authorized invoice owner's saved email, never posted buyer data.
+            $buyerEmail = Capsule::table('tblclients')->where('id', (int) $data->userid)->value('email');
+        }
+
         $transactionSpeed = isset($GATEWAY['transactionSpeed'])
             ? strtolower(trim($GATEWAY['transactionSpeed']))
             : 'medium';
-        $invoice = $client->createInvoice($invoiceId, $price, $currency, $returnUrl, $orderUrl, $transactionSpeed);
+        $invoice = $client->createInvoice(
+            $invoiceId, $price, $currency, $returnUrl, $orderUrl, $transactionSpeed, $buyerEmail
+        );
         $contractError = bpValidateCreatedInvoiceData(
             $invoice,
             $invoiceId,
