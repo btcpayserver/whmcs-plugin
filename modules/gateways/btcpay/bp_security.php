@@ -346,6 +346,11 @@ function bpSanitizeCallbackDiagnosticText($value, $maximumLength = 160)
         return '[unavailable]';
     }
 
+    $value = strip_tags($value);
+    if ($value === '') {
+        return '[unavailable]';
+    }
+
     return substr($value, 0, $maximumLength);
 }
 
