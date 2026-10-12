@@ -242,7 +242,7 @@ $diagnosticBody = '{"private":"callback content is not logged"}';
 $requestDiagnostics = bpBuildCallbackRequestDiagnostics(array(
     'REMOTE_ADDR' => '2001:db8::42',
     'REQUEST_METHOD' => "POST\r\nInjected: yes",
-    'CONTENT_TYPE' => 'application/json; charset=utf-8',
+    'CONTENT_TYPE' => 'application/json<script>alert(1)</script>',
     'CONTENT_LENGTH' => (string) strlen($diagnosticBody),
     'HTTP_AUTHORIZATION' => 'Bearer must-not-be-logged',
     'HTTP_COOKIE' => 'session=must-not-be-logged',
@@ -262,6 +262,9 @@ $formattedDiagnostics = bpFormatCallbackDiagnosticContext($requestDiagnostics);
 bpSecurityAssertNotContains('callback content', $formattedDiagnostics, 'Does not log the callback request body.');
 bpSecurityAssertNotContains('must-not-be-logged', $formattedDiagnostics, 'Does not log credentials or cookies.');
 bpSecurityAssertNotContains("\r", $formattedDiagnostics, 'Removes control characters from diagnostics.');
+bpSecurityAssertNotContains('<script>', $formattedDiagnostics, 'Strips markup from attacker-supplied header values.');
+bpSecurityAssertNotContains('</script>', $formattedDiagnostics, 'Strips closing markup from diagnostics.');
+bpSecurityAssertContains('application/json', $formattedDiagnostics, 'Keeps the useful media type from diagnostics.');
 bpSecurityAssertSame(
     1,
     preg_match('/^[a-f0-9]{16}$/D', bpGenerateCallbackTraceId()),
